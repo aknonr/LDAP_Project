@@ -1,0 +1,28 @@
+# Logging Redaction Politikasý
+
+Bu politika, loglarda **hiçbir secret/sifre/tokens** bilgisinin bulunmamasýný garanti eder.
+
+## Hassas Alanlar (Mutlaka Maskele)
+- `oldPassword`
+- `newPassword`
+- `tokens`
+- `secrets`
+- OIDC tokenlarý (access/refresh/id token)
+- LDAP/AD kimlik bilgileri
+- Connection string içinde geçen user/password segmentleri
+
+## Kayýt Ýlkeleri
+- **Ýstek/cevap body loglanmaz** (özellikle password change endpointleri).
+- Sadece **whitelist** alanlar loglanýr (örn. `jobId`, `targetCount`, `status`).
+- Header loglarýnda `Authorization` ve `Cookie` **asla** yazýlmaz.
+- Exception loglarýnda **payload yok**; yalnýzca hata kodu ve güvenli özet bulunur.
+
+## Uygulama Notlarý
+- Serilog minimum level üretim için `Information` ve üstü olacak þekilde ayarlý.
+- File sink `logs/*.log` altýnda rolling günlük dosyalarla çalýþýr.
+- EventLog sink sadece Windows ortamýnda etkinleþtirilir.
+- Korelasyon için `CorrelationId` (header veya request scope) kullanýlacaktýr.
+
+## Denetim
+- CI aþamasýnda `dotnet list package --vulnerable` ve log taramasý önerilir.
+- Prod’da loglar SIEM’e forward edilirken redaction kurallarý korunur.
