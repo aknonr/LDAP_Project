@@ -1,3 +1,5 @@
+using Application.Services.Rbac;
+using Infrastructure.Identity;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -12,6 +14,8 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("Default");
         services.AddDbContext<AdpmDbContext>(options =>
             options.UseSqlServer(connectionString));
+
+        services.AddScoped<IRoleResolver, RoleResolver>();
 
         return services;
     }
