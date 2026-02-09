@@ -5,7 +5,8 @@ DB erişimi, dış sistem entegrasyonları ve messaging altyapısı bu katmanda 
 
 ## Mevcut İçerik
 - `AdpmDbContext` (EF Core)
-- EF Core paketleri (.NET 8 uyumlu en güncel 8.x sürümleri)
+- EF Core paketleri (8.0.23)
+- `RoleResolver` (RBAC role mapping)
 
 ## Güvenlik Notları
 - Payload şifreleme anahtarı config’te **placeholder** olarak tutulur.

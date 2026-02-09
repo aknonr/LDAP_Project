@@ -30,4 +30,3 @@ Bu alanlarda gerçek secret **asla** yer almaz:
 - Connection string ve payload anahtarı **CI/CD secret store** üzerinden verilir.
 - Prod ortamda `RequireHttpsMetadata` ve TLS doğrulama zorunludur.
 - `appsettings.json` dosyaları **source control**’a girebilir; secret içermez.
-docs/logging-redaction-policy.md

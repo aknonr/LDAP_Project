@@ -6,6 +6,8 @@ OIDC login, RBAC, job oluşturma ve izleme endpointleri burada bulunur.
 ## Mevcut İçerik
 - Serilog loglama iskeleti
 - OIDC config placeholder (`Auth:Oidc`)
+- JWT Bearer auth + group allowlist (policy) altyapısı
+- RBAC claim transformation (DB role mapping)
 
 ## Sonraki Aşamalar
 - OIDC login + group allowlist + RBAC (`PKG-004`)
