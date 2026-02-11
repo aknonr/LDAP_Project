@@ -154,6 +154,7 @@ public sealed class AdpmDbContext : DbContext
             entity.Property(x => x.ServerGroup).HasMaxLength(200).IsRequired();
             entity.Property(x => x.ResultSummary).HasMaxLength(1000).IsRequired();
             entity.Property(x => x.CorrelationId).HasMaxLength(100);
+        
         });
 
         modelBuilder.Entity<OutboxMessage>(entity =>

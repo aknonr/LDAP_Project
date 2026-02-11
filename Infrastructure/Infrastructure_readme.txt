@@ -7,6 +7,7 @@ DB erişimi, dış sistem entegrasyonları ve messaging altyapısı bu katmanda 
 - `AdpmDbContext` (EF Core)
 - EF Core paketleri (8.0.23)
 - `RoleResolver` (RBAC role mapping)
+- RabbitMQ ayar modeli: `RabbitMqOptions`, `ConsumerOptions`
 
 ## Güvenlik Notları
 - Payload şifreleme anahtarı config’te **placeholder** olarak tutulur.

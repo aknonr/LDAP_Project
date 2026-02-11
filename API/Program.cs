@@ -1,5 +1,9 @@
 using API.Auth;
+using Application.Messaging;
+using Application.Messaging.Events;
 using Infrastructure;
+using Infrastructure.Messaging;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication;
@@ -9,6 +13,7 @@ using Serilog;
 using Swashbuckle.AspNetCore.SwaggerUI;
 using System.Reflection;
 using System.Security.Claims;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -72,6 +77,48 @@ builder.Services.AddSwaggerGen(options =>
         };
     });
 });
+
+// RabbitMQ baglanti ayarlarini configten oku.
+builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("Messaging:RabbitMq"));
+
+// MassTransit bus konfigurasyonu (API tarafinda sadece publish).
+builder.Services.AddMassTransit(configurator =>
+{
+    configurator.UsingRabbitMq((context, cfg) =>
+    {
+        var options = context.GetRequiredService<IOptions<RabbitMqOptions>>().Value;
+
+        cfg.Host(options.Host, options.Port, options.VirtualHost, host =>
+        {
+            host.Username(options.Username);
+            host.Password(options.Password);
+            host.Heartbeat(options.RequestedHeartbeat);
+
+            if (options.UseTls)
+            {
+                host.UseSsl(ssl =>
+                {
+                    ssl.ServerName = string.IsNullOrWhiteSpace(options.SslServerName)
+                        ? options.Host
+                        : options.SslServerName;
+                });
+            }
+        });
+
+        // Event exchange adini sabitle (server.result.events).
+        cfg.Message<ServerUsageResultEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
+        cfg.Message<ServerUpdateResultEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
+        cfg.Message<JobProgressEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
+    });
+});
+
+// Command mesajlarini dogrudan queue'lara gondermek icin URI map'leri.
+EndpointConvention.Map<Application.Messaging.Commands.DiscoverServerUsageCommand>(
+    new Uri($"queue:{QueueNames.ServerDiscoveryCommands}"));
+EndpointConvention.Map<Application.Messaging.Commands.UpdateServerResourcesCommand>(
+    new Uri($"queue:{QueueNames.ServerUpdateCommands}"));
+EndpointConvention.Map<Application.Messaging.Commands.VerifyServerCommand>(
+    new Uri($"queue:{QueueNames.ServerVerifyCommands}"));
 
 builder.Services.Configure<OidcOptions>(builder.Configuration.GetSection("Auth:Oidc"));
 
