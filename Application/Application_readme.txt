@@ -5,6 +5,9 @@ Use-case’ler, servis arayüzleri ve iş politikaları bu katmanda yer alır. D
 
 ## Mevcut Durum
 - RBAC için `IRoleResolver` arayüzü eklendi (DB role mapping için).
+- Mesaj sözleşmeleri (Command/Event) eklendi: `Application/Messaging`.
+- Queue sabitleri ve encrypted payload modeli eklendi.
+- Job use-case iskeletleri eklendi (create/status/targets).
 
 ## Planlanan İçerik
 - RBAC servisleri (`PKG-004`)
