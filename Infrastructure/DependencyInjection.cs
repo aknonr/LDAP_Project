@@ -17,6 +17,7 @@ using Infrastructure.Persistence;
 using Infrastructure.Persistence.Auditing;
 using Infrastructure.Persistence.Repositories;
 using Infrastructure.Persistence.Tracking;
+using Infrastructure.RemoteExecution;
 using Infrastructure.Security;
 using Infrastructure.InventoryApi;
 using Infrastructure.Update;
@@ -46,6 +47,7 @@ public static class DependencyInjection
         });
 
         services.Configure<LdapOptions>(configuration.GetSection("Ldap"));
+        services.Configure<RemoteExecutionOptions>(configuration.GetSection("RemoteExecution"));
 
         services.Configure<InventoryApiOptions>(configuration.GetSection("InventoryApi"));
         services.AddHttpClient<IInventoryApiClient, InventoryApiClient>((provider, client) =>
@@ -68,6 +70,7 @@ public static class DependencyInjection
         services.AddScoped<IAuditTrailWriter, AuditTrailStore>();
         services.AddScoped<IAuditTrailReader, AuditTrailStore>();
         services.AddScoped<IInventorySyncService, InventorySyncService>();
+        services.AddScoped<IRemoteCommandExecutor, PowerShellWinRmCommandExecutor>();
         services.AddScoped<IDiscoveryEngine, DiscoveryEngine>();
         services.AddScoped<IUpdateEngine, UpdateEngine>();
         services.AddScoped<IDiscoveryStrategy, ServiceDiscoveryStrategy>();

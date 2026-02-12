@@ -29,4 +29,6 @@
 ## Operasyon
 - [x] API ve Worker ayri deploy edilebilir
 - [x] Event-driven akis mevcut, polling yok
+- [x] Remote execution timeout kontrolu (`RemoteExecution`)
+- [x] Worker role bazli queue tuketimi (`WorkerRoles`)
 - [ ] SIEM forwarding opsiyonel entegrasyon planlandi

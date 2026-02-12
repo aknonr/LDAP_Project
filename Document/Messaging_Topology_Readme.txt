@@ -40,6 +40,11 @@ Bu dokuman PKG-009/010 ve PKG-012 kapsaminda gunceldir.
 - Consumer:
   - `Messaging:Consumer:PrefetchCount`
   - `Messaging:Consumer:ConcurrencyLimit`
+- Worker role:
+  - `WorkerRoles:EnableDiscovery`
+  - `WorkerRoles:EnableUpdate`
+  - `WorkerRoles:EnableVerify`
+  - `WorkerRoles:EnableInventorySync`
 
 ## Guvenlik
 - TLS port `5671` zorunlu.

@@ -5,6 +5,7 @@ using Infrastructure.Messaging;
 using MassTransit;
 using Microsoft.Extensions.Options;
 using Serilog;
+using Worker.Configuration;
 using Worker.Consumers;
 using Worker.Jobs;
 
@@ -18,16 +19,28 @@ builder.Services.AddSerilog((services, configuration) =>
         .Enrich.FromLogContext();
 });
 
-// RabbitMQ ve concurrency ayarlarini configten oku.
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("Messaging:RabbitMq"));
 builder.Services.Configure<ConsumerOptions>(builder.Configuration.GetSection("Messaging:Consumer"));
+builder.Services.Configure<WorkerRoleOptions>(builder.Configuration.GetSection("WorkerRoles"));
 
-// MassTransit consumer konfigurasyonu.
+var workerRoles = builder.Configuration.GetSection("WorkerRoles").Get<WorkerRoleOptions>() ?? new WorkerRoleOptions();
+
 builder.Services.AddMassTransit(configurator =>
 {
-    configurator.AddConsumer<DiscoverServerUsageConsumer>();
-    configurator.AddConsumer<UpdateServerResourcesConsumer>();
-    configurator.AddConsumer<VerifyServerConsumer>();
+    if (workerRoles.EnableDiscovery)
+    {
+        configurator.AddConsumer<DiscoverServerUsageConsumer>();
+    }
+
+    if (workerRoles.EnableUpdate)
+    {
+        configurator.AddConsumer<UpdateServerResourcesConsumer>();
+    }
+
+    if (workerRoles.EnableVerify)
+    {
+        configurator.AddConsumer<VerifyServerConsumer>();
+    }
 
     configurator.UsingRabbitMq((context, cfg) =>
     {
@@ -51,39 +64,51 @@ builder.Services.AddMassTransit(configurator =>
             }
         });
 
-        // Result event'leri API tarafi ile ayni exchange adindan publish edilir.
         cfg.Message<ServerUsageResultEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
         cfg.Message<ServerUpdateResultEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
         cfg.Message<JobProgressEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
 
-        cfg.ReceiveEndpoint(QueueNames.ServerDiscoveryCommands, endpoint =>
+        if (workerRoles.EnableDiscovery)
         {
-            endpoint.PrefetchCount = consumerOptions.PrefetchCount;
-            endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
-            endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
-            endpoint.ConfigureConsumer<DiscoverServerUsageConsumer>(context);
-        });
+            cfg.ReceiveEndpoint(QueueNames.ServerDiscoveryCommands, endpoint =>
+            {
+                endpoint.PrefetchCount = consumerOptions.PrefetchCount;
+                endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
+                endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
+                endpoint.ConfigureConsumer<DiscoverServerUsageConsumer>(context);
+            });
+        }
 
-        cfg.ReceiveEndpoint(QueueNames.ServerUpdateCommands, endpoint =>
+        if (workerRoles.EnableUpdate)
         {
-            endpoint.PrefetchCount = consumerOptions.PrefetchCount;
-            endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
-            endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
-            endpoint.ConfigureConsumer<UpdateServerResourcesConsumer>(context);
-        });
+            cfg.ReceiveEndpoint(QueueNames.ServerUpdateCommands, endpoint =>
+            {
+                endpoint.PrefetchCount = consumerOptions.PrefetchCount;
+                endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
+                endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
+                endpoint.ConfigureConsumer<UpdateServerResourcesConsumer>(context);
+            });
+        }
 
-        cfg.ReceiveEndpoint(QueueNames.ServerVerifyCommands, endpoint =>
+        if (workerRoles.EnableVerify)
         {
-            endpoint.PrefetchCount = consumerOptions.PrefetchCount;
-            endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
-            endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
-            endpoint.ConfigureConsumer<VerifyServerConsumer>(context);
-        });
+            cfg.ReceiveEndpoint(QueueNames.ServerVerifyCommands, endpoint =>
+            {
+                endpoint.PrefetchCount = consumerOptions.PrefetchCount;
+                endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
+                endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
+                endpoint.ConfigureConsumer<VerifyServerConsumer>(context);
+            });
+        }
     });
 });
 
 builder.Services.AddHostedService<Worker.Worker>();
-builder.Services.AddHostedService<InventorySyncJob>();
+if (workerRoles.EnableInventorySync)
+{
+    builder.Services.AddHostedService<InventorySyncJob>();
+}
+
 builder.Services.AddInfrastructure(builder.Configuration);
 
 var host = builder.Build();

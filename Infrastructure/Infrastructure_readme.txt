@@ -24,6 +24,9 @@
 - Discovery/Update:
   - `DiscoveryEngine` + discovery strategies
   - `UpdateEngine` + update strategies
+- Remote execution:
+  - `PowerShellWinRmCommandExecutor`
+  - `RemoteExecutionOptions`
 - Tracking:
   - `JobTrackingService` (result event -> Job/Target status update)
 - Audit:
@@ -39,4 +42,6 @@
 - `IAuditTrailWriter/Reader` implementasyonu API controller'larinda kullanilir.
 
 ## Sonraki Plan
-- Discovery/Update engine stratejilerinin WinRM/PowerShell ile gercek implementasyonu
+- ScheduledTask/IIS/COM+ update stratejilerinin WinRM/PowerShell ile gercek implementasyonu
+- UserRight discovery stratejisinin gercek implementasyonu
+- Verify akisinin gercek implementasyonu ve hata kodu standardizasyonu

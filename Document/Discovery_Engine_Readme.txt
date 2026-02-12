@@ -7,15 +7,16 @@
 - Engine: `Infrastructure/Discovery/DiscoveryEngine.cs`
 - Strategy arayuzu: `Application/Abstractions/Discovery/IDiscoveryStrategy.cs`
 - Context: `Application/Abstractions/Discovery/DiscoveryContext.cs`
+- Remote execution: `Infrastructure/RemoteExecution/IRemoteCommandExecutor.cs`
 
-## Mevcut Stratejiler (Stub)
-- Service
-- ScheduledTask
-- IISAppPool
-- IISSite
-- IISWebApp
-- IISVirtualDir
-- COMPlus
+## Mevcut Stratejiler
+- Service (WinRM/PowerShell ile aktif)
+- ScheduledTask (WinRM/PowerShell ile aktif)
+- IISAppPool (WinRM/PowerShell ile aktif)
+- IISSite (WinRM/PowerShell ile aktif)
+- IISWebApp (WinRM/PowerShell ile aktif)
+- IISVirtualDir (WinRM/PowerShell ile aktif)
+- COMPlus (WinRM/PowerShell ile aktif)
 - UserRight
 
 ## Akis
@@ -25,4 +26,6 @@
 4. `ServerUsageResultEvent` publish edilir.
 
 ## Not
-- Stub stratejiler su an bos liste doner, ileride WinRM/PowerShell ve WMI/CIM ile uygulanacak.
+- UserRight strategy su an stub doner.
+- Service discovery sonucu `ResourceName=ServiceName`, `ResourcePath=StartName` olarak kaydedilir.
+- Remote timeout ayarlari `Worker/appsettings.json` altindaki `RemoteExecution` bolumunden yonetilir.

@@ -63,10 +63,22 @@ public sealed class UpdateEngine : IUpdateEngine
                 continue;
             }
 
+            _logger.LogInformation(
+                "Update strategy basladi. JobId={JobId}, TargetId={TargetId}, ResourceId={ResourceId}, ResourceType={ResourceType}, ResourceName={ResourceName}",
+                context.JobId,
+                context.TargetId,
+                resource.Id,
+                resource.ResourceType,
+                resource.ResourceName);
+
             OperationResult result;
             try
             {
                 result = await strategy.UpdateAsync(context, resource, cancellationToken);
+            }
+            catch (OperationFailureException ex)
+            {
+                result = OperationResult.Failure(ex.ErrorCode, ex.Message);
             }
             catch (Exception ex)
             {
@@ -79,6 +91,11 @@ public sealed class UpdateEngine : IUpdateEngine
                 resource.Status = TargetStatus.Success;
                 resource.ErrorCode = null;
                 resource.ErrorMessage = null;
+                _logger.LogInformation(
+                    "Update strategy basarili. JobId={JobId}, TargetId={TargetId}, ResourceId={ResourceId}",
+                    context.JobId,
+                    context.TargetId,
+                    resource.Id);
             }
             else
             {
@@ -87,6 +104,12 @@ public sealed class UpdateEngine : IUpdateEngine
                 resource.ErrorMessage = SensitiveDataRedactor.Redact(result.ErrorMessage);
                 targetErrorCode ??= resource.ErrorCode;
                 targetErrorMessage ??= resource.ErrorMessage;
+                _logger.LogWarning(
+                    "Update strategy basarisiz. JobId={JobId}, TargetId={TargetId}, ResourceId={ResourceId}, ErrorCode={ErrorCode}",
+                    context.JobId,
+                    context.TargetId,
+                    resource.Id,
+                    resource.ErrorCode);
             }
 
             resource.UpdatedAt = now;
