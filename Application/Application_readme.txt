@@ -33,6 +33,7 @@
   - `IUpdateEngine`, `IUpdateStrategy`
   - `DiscoveryContext`, `DiscoveryResult`
   - `UpdateContext`, `UpdateResult`
+  - `OperationFailureException` (error code propagation)
 
 ## Mimari Not
 - API katmani sadece abstraction'lara baglidir.

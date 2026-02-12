@@ -1,4 +1,5 @@
 using Application.Abstractions.Discovery;
+using Application.Models;
 using Domain.Entities;
 using Domain.Enums;
 using Infrastructure.Persistence;
@@ -52,6 +53,18 @@ public sealed class DiscoveryEngine : IDiscoveryEngine
                 }
             }
 
+            resources = resources
+                .Where(item => !string.IsNullOrWhiteSpace(item.ResourceName))
+                .GroupBy(item => new { item.ResourceType, Name = item.ResourceName.Trim() })
+                .Select(group => group.First())
+                .ToList();
+
+            _logger.LogInformation(
+                "Discovery toplandi. JobId={JobId}, TargetId={TargetId}, ResourceCount={ResourceCount}",
+                context.JobId,
+                context.TargetId,
+                resources.Count);
+
             if (resources.Count == 0)
             {
                 return await FailAndUpdate(target, "NOT_IMPLEMENTED", "Discovery engine henuz entegre edilmedi.", cancellationToken);
@@ -89,6 +102,15 @@ public sealed class DiscoveryEngine : IDiscoveryEngine
                 Status = TargetStatus.Success,
                 Resources = resources
             };
+        }
+        catch (OperationFailureException ex)
+        {
+            _logger.LogWarning(
+                "Discovery strategy hatasi. JobId={JobId}, TargetId={TargetId}, ErrorCode={ErrorCode}",
+                context.JobId,
+                context.TargetId,
+                ex.ErrorCode);
+            return await FailAndUpdate(target, ex.ErrorCode, ex.Message, cancellationToken);
         }
         catch (Exception ex)
         {

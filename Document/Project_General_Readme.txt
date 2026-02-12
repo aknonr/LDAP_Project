@@ -64,7 +64,20 @@ Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin
 - Build pipeline ve referanslar stabil olduktan sonra tasimak daha dogru olur.
 
 ## Sonraki Asamalar
-1. PKG-006: LDAPS password change gercek implementasyonu
-2. PKG-007/008: Discovery/Update engine plugin stratejileri
+1. Service disindaki update stratejilerinin gercek implementasyonu
+2. Verify akisinin gercek implementasyonu
 3. PKG-014: UI + SignalR istemci entegrasyonu
 4. DTO ayirma katmani (kullanici talebiyle en son)
+
+## Guncel Backend Notu
+- Service, ScheduledTask, IIS ve COM+ discovery stratejileri WinRM/PowerShell ile aktiflestirildi.
+- Service update stratejisi idempotent + hata kodu map ile aktiflestirildi.
+
+## Troubleshooting Notu
+- `dotnet list ... --vulnerable` komutu bu ortamda tekrar calistirildi ve basarili.
+- `hostpolicy.dll/SDK` problemi su an yeniden uretilemiyor.
+- Dogrulama:
+  - `dotnet --info` => calisiyor
+  - `where dotnet` => `C:\Program Files\dotnet\dotnet.exe`
+  - `C:\Program Files\dotnet\host\fxr` altinda `8.0.24` ve `9.0.13` mevcut
+  - `dotnet list LDAP_Project.sln package --vulnerable` => tum projelerde acik yok
