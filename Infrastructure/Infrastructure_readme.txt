@@ -1,19 +1,42 @@
-﻿# Infrastructure Katmanı
+# Infrastructure Katmani
 
-## Amaç
-DB erişimi, dış sistem entegrasyonları ve messaging altyapısı bu katmanda toplanır.
+## Amac
+- DB erisimi, dis sistem entegrasyonu, messaging ve guvenlik implementasyonlari burada toplaniyor.
 
-## Mevcut İçerik
-- `AdpmDbContext` (EF Core)
-- EF Core paketleri (8.0.23)
-- `RoleResolver` (RBAC role mapping)
-- RabbitMQ ayar modeli: `RabbitMqOptions`, `ConsumerOptions`
+## Mevcut Icerik
+- EF Core:
+  - `AdpmDbContext`
+  - Paketler: `Microsoft.EntityFrameworkCore`, `SqlServer`, `Design`, `Tools` => `8.0.23`
+- TH API:
+  - `ThApiClient` (HTTP client)
+  - `InventorySyncService`
+- Repository:
+  - `JobRepository`
+  - `ServerGroupRepository`
+- Messaging:
+  - `MassTransitCommandPublisher`
+  - `RabbitMqOptions`, `ConsumerOptions`
+- Security:
+  - `AesGcmPayloadProtector`
+  - `SensitiveDataRedactor`
+- Directory:
+  - `AdPasswordChangeService` (LDAPS change)
+- Discovery/Update:
+  - `DiscoveryEngine` + discovery strategies
+  - `UpdateEngine` + update strategies
+- Tracking:
+  - `JobTrackingService` (result event -> Job/Target status update)
+- Audit:
+  - `AuditTrailStore` (writer + reader)
 
-## Güvenlik Notları
-- Payload şifreleme anahtarı config’te **placeholder** olarak tutulur.
-- Şifreler DB veya loglarda tutulmaz.
+## Guvenlik Notlari
+- MQ payload sifreleme `AES-GCM`; plain sifre DB/log/MQ'ya yazilmaz.
+- Audit metinleri sanitize edilir; hassas anahtarlar redacted yazilir.
+- CorrelationId job ve audit kayitlarina tasinabilir.
 
-## Sonraki Aşamalar
-- EF Core migration üretimi (`PKG-003`)
-- LDAP/LDAPS servisleri (`PKG-006`)
-- RabbitMQ + MassTransit altyapısı (`PKG-009`)
+## Baglantilar
+- `IJobTrackingService` implementasyonu API consumer'larindan cagrilir.
+- `IAuditTrailWriter/Reader` implementasyonu API controller'larinda kullanilir.
+
+## Sonraki Plan
+- Discovery/Update engine stratejilerinin WinRM/PowerShell ile gercek implementasyonu

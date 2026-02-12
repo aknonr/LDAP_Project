@@ -19,6 +19,8 @@ Bu alanlarda gerçek secret **asla** yer almaz:
 - `Security:PayloadEncryption:KeyId` → `<KEY_ID>`
 - `Security:PayloadEncryption:KeyName` → `<KEY_NAME>`
 - `Security:PayloadEncryption:KeySource` → `WindowsCredentialManager|Vault`
+- `ThApi:ApiKey` → `<TH_API_KEY>`
+- `ThApi:BearerToken` → `<TH_API_BEARER>`
 
 ## Secret Kaynağı Akışı (Özet)
 1. Uygulama başlarken `KeySource` okunur.
@@ -30,3 +32,4 @@ Bu alanlarda gerçek secret **asla** yer almaz:
 - Connection string ve payload anahtarı **CI/CD secret store** üzerinden verilir.
 - Prod ortamda `RequireHttpsMetadata` ve TLS doğrulama zorunludur.
 - `appsettings.json` dosyaları **source control**’a girebilir; secret içermez.
+- TH API anahtari secret store’dan cekilmelidir.

@@ -1,49 +1,70 @@
-﻿# EnterpriseADPasswordManager (LDAP_Project)
+# EnterpriseADPasswordManager (LDAP_Project)
 
-Bu repo, kurumsal AD şifre değiştirme ve servis hesabı kullanımını yönetmek için **Onion Architecture + Worker Services + Event Driven** yaklaşımıyla tasarlanmıştır. Hedef teknoloji seti `.NET 8`, `SQL Server 2022`, `RabbitMQ + MassTransit`, `SignalR`.
+Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin **Onion Architecture + Worker Services + Event Driven** yaklasimiyla ilerliyor.
 
-## Mimari Özet
-- **Domain:** Saf iş modelleri ve enumlar.
-- **Application:** Use-case’ler, arayüzler, politika/iş kuralları.
-- **Infrastructure:** DB erişimi, dış sistem entegrasyonları, messaging altyapısı.
-- **API:** OIDC giriş, RBAC, job başlatma ve izleme uçları.
-- **Worker:** Discovery/update/verify işleri; MQ consumer’ları.
+## Hedef Teknoloji
+- `.NET 8`
+- `SQL Server 2022`
+- `RabbitMQ + MassTransit`
+- `SignalR`
+- `Serilog`
 
-Detaylar ve planlar: `Document/roadmap.json`
+## Katmanlar
+- `Domain`: Entity + enum
+- `Application`: Use-case + abstraction
+- `Infrastructure`: EF Core + messaging + security + audit/tracking implementasyonlari
+- `API`: OIDC + RBAC + endpoint + SignalR + audit rapor
+- `Worker`: command consumer + result event publisher
+- `Document`: proje genel dokumanlari
 
-
-
-## Konfigürasyon ve Güvenlik
-- Config/secret stratejisi: `Document/Config_and_Secrets_Readme.txt`
-- Log redaction politikası: `Document/Logging_Redaction_Readme.txt`
-- Messaging topology: `Document/Messaging_Topology_Readme.txt`
-
-## Katman Dökümanları (Güncel Konumlar)
+## Katman Dokumanlari
 - `Domain/Domain_readme.txt`
 - `Application/Application_readme.txt`
 - `Infrastructure/Infrastructure_readme.txt`
 - `API/API_README.txt`
 - `Worker/Worker_readme.txt`
 
-## Bu Aşamada Yapılanlar (PKG-002 + PKG-003 + PKG-004 + PKG-009/010 + PKG-011-2)
-- Serilog iskeleti ve config placeholder’ları eklendi.
-- EF Core paketleri 8.0.23’e sabitlendi ve **DbContext + entity iskeleti** oluşturuldu.
-- OIDC placeholder ayarları `API/appsettings.json` içine alındı.
-- JWT Bearer auth + group allowlist (policy) + RBAC claim transformation altyapısı eklendi.
-- MassTransit + RabbitMQ topology ve Worker consumer iskeleti eklendi.
-- API request/response contract iskeleti eklendi (jobs/auth).
-- Application use-case iskeleti eklendi (job create/status/targets).
+## Genel Dokumanlar
+- `Document/Config_and_Secrets_Readme.txt`
+- `Document/Logging_Redaction_Readme.txt`
+- `Document/Messaging_Topology_Readme.txt`
+- `Document/API_Contract_Readme.txt`
+- `Document/Realtime_Updates_Readme.txt`
+- `Document/Audit_and_Logging_Readme.txt`
+- `Document/Security_Checklist_Readme.txt`
+- `Document/Th_Api_Inventory_Readme.txt`
+- `Document/Ad_Ldaps_Change_Readme.txt`
+- `Document/Discovery_Engine_Readme.txt`
+- `Document/Update_Engine_Readme.txt`
+- `Document/roadmap.json`
 
-## Migrations Notu
-Migrations oluşturmak için önce gerçek connection string sağlanmalı:
-- `ConnectionStrings:Default` placeholder’dan gerçek değere çevrilir.
-- `dotnet ef migrations add InitialCreate --project Infrastructure --startup-project API`
+## Tamamlanan Asamalar
+- `PKG-002`: Config/secrets + Serilog iskeleti
+- `PKG-003`: EF Core model + DbContext iskeleti
+- `PKG-004`: OIDC placeholder + group allowlist + RBAC claims transform
+- `PKG-005`: TH API inventory sync (client + worker job)
+- `PKG-006`: LDAPS password change servisi
+- `PKG-007`: Discovery engine (plugin tabanli iskelet)
+- `PKG-008`: Update engine (idempotent iskelet)
+- `PKG-009/010`: MassTransit + RabbitMQ topology + Worker consumer iskeleti
+- `PKG-011 Adim 3`: API Controller + DI + MQ publish
+- `PKG-012`: SignalR hub + API result consumer + canli event akisi
+- `PKG-013`: Correlation middleware + request logging enrich + security headers + audit trail/rapor endpoint
 
+## Mimari Baglanti (PKG-012/013)
+1. API job olusturur ve command queue'ya yollar.
+2. Worker command'i tuketir ve result event publish eder.
+3. API result event'i tuketir, DB'de job/target durumunu gunceller.
+4. API SignalR hub ile `jobUpdated`/`targetUpdated` eventlerini istemcilere yayinlar.
+5. API audit kaydini DB'ye yazar; `Admin/SuperAdmin` audit log endpointinden raporlar.
 
-## `src/` Klasör Yapısı
-Roadmap’e göre önerilen yapı `src/<layer>/<project>` şeklindedir. **Zorunlu değildir**, ancak orta/uzun vadede düzen ve tutarlılık için önerilir. Taşımayı istersen birlikte yaparız.
+## src/ Tasima Notu
+- Roadmap'te `src/<layer>/<project>` onerisi var.
+- Mevcut kok dizin yapisi teknik olarak calisir; zorunlu degil.
+- Build pipeline ve referanslar stabil olduktan sonra tasimak daha dogru olur.
 
-## Sonraki Aşamalar
-1. **PKG-011:** API endpoints (auth + job create/status)
-2. **PKG-012:** SignalR canlı güncellemeler
-3. **PKG-013:** Observability + audit trail
+## Sonraki Asamalar
+1. PKG-006: LDAPS password change gercek implementasyonu
+2. PKG-007/008: Discovery/Update engine plugin stratejileri
+3. PKG-014: UI + SignalR istemci entegrasyonu
+4. DTO ayirma katmani (kullanici talebiyle en son)

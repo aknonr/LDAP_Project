@@ -1,10 +1,14 @@
 # Migrations
 
-Bu klasör, EF Core migrations dosyalarının bulunacağı yerdir.
+Bu klasor EF Core migration dosyalarini barindirir.
 
-Oluşturmak için:
-1. `ConnectionStrings:Default` değerini gerçek SQL Server bağlantı dizesiyle ayarla.
-2. Aşağıdaki komutu çalıştır:
-   - `dotnet ef migrations add InitialCreate --project Infrastructure --startup-project API`
+## Mevcut Migration
+- `AddServerInventoryExternalId` (ServerInventories tablosuna `ExternalId` ve index)
 
-> Not: Bu aşamada sadece iskelet hazırlandı; migration dosyaları henüz oluşturulmadı.
+## Yeni Migration Olusturma
+1. `ConnectionStrings:Default` degerini gercek SQL Server baglanti dizesiyle ayarla.
+2. Komutu calistir:
+   - `dotnet ef migrations add <Name> --project Infrastructure --startup-project Infrastructure`
+
+## Not
+- `Infrastructure/Persistence/AdpmDbContextFactory.cs` tooling icin design-time context saglar.
