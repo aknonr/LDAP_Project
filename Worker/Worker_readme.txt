@@ -12,7 +12,11 @@
   - `InventorySyncJob` (periyodik TH API sync)
 - Discovery/Update engine:
   - `DiscoveryEngine` ve `UpdateEngine` Worker tarafindan cagrilir
-  - Service discovery WinRM/PowerShell transportu ile calisir
+  - Service/ScheduledTask/IIS/COM+ discovery WinRM/PowerShell ile calisir
+  - Service/ScheduledTask/IIS/COM+ update WinRM/PowerShell ile calisir
+- Verify:
+  - Update sonrasi (opsiyonel) verify komutu gonderilir
+  - Config: `Verification:EnablePostUpdateVerification`
 - Worker role dagitimi:
   - `WorkerRoles:EnableDiscovery`
   - `WorkerRoles:EnableUpdate`
@@ -21,6 +25,8 @@
 - RabbitMQ + MassTransit:
   - Queue consume: `server.discovery.commands`, `server.update.commands`, `server.verify.commands`
   - Result publish exchange: `server.result.events`
+  - Quorum queue (opsiyonel): `UseQuorumQueues`
+  - EF Outbox (opsiyonel): `Messaging:Outbox`
 - Concurrency:
   - `PrefetchCount` ve `ConcurrencyLimit` configten okunur.
   - Retry: 3 deneme, 5 saniye aralik
@@ -31,10 +37,11 @@
 
 ## LDAPS Notu
 - Worker config'inde `Ldap` ayarlari bulunur (PKG-006).
-- Update engine entegre oldugunda bu servis kullanilacak.
+- AD sifre degistirme servisi mevcut; password-change job akisi ile orkestrasyon sonraki adimdir.
 
 ## Sonraki Plan
-- Service disindaki update stratejilerini gercek implementasyona tasima.
+- UserRight discovery stratejisinin gercek implementasyonu.
+- Password-change job icin AD (LDAPS) change + update + verify orkestrasyonu.
 
 ## Yuk Dagitimi ve Failover
 - Ayni queue'yu birden fazla worker instance tukettiginde `competing consumers` modeli ile yuk dagitilir.

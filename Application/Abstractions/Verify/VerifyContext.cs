@@ -1,18 +1,15 @@
-using Application.Messaging;
-
-namespace Application.Messaging.Commands;
+namespace Application.Abstractions.Verify;
 
 /// <summary>
-/// Sifre degisikliginin dogrulanmasi icin gonderilen komut.
+/// Verify islemi icin gerekli hedef baglami.
 /// </summary>
-public sealed record VerifyServerCommand
+public sealed record VerifyContext
 {
     public Guid JobId { get; init; }
     public Guid TargetId { get; init; }
     public string ServerName { get; init; } = string.Empty;
     public string? IpAddress { get; init; }
     public string TargetAccount { get; init; } = string.Empty;
-    public EncryptedPayload EncryptedPassword { get; init; } = new();
+    public string NewPassword { get; init; } = string.Empty;
     public string? CorrelationId { get; init; }
-    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }

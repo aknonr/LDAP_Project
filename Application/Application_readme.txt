@@ -34,6 +34,9 @@
   - `DiscoveryContext`, `DiscoveryResult`
   - `UpdateContext`, `UpdateResult`
   - `OperationFailureException` (error code propagation)
+- Verify abstraction:
+  - `IVerifyEngine`
+  - `VerifyContext`, `VerifyResult`
 
 ## Mimari Not
 - API katmani sadece abstraction'lara baglidir.
@@ -41,5 +44,5 @@
 - DTO ayirma katmani kullanici talebiyle sonraki/gec asamaya ertelendi.
 
 ## Sonraki Plan
-- PKG-006: LDAPS password change use-case servis akisi
-- PKG-007/008: Discovery ve update strategy abstraction'larini genisletme
+- Password-change job orkestrasyonu: AD change + update + verify
+- Yetki/rol modelini (SuperAdmin rapor) genisletme

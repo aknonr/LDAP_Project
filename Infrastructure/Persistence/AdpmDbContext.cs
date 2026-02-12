@@ -1,4 +1,5 @@
 using Domain.Entities;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 namespace Infrastructure.Persistence;
@@ -168,6 +169,13 @@ public sealed class AdpmDbContext : DbContext
             entity.Property(x => x.Type).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Payload).HasColumnType("nvarchar(max)").IsRequired();
             entity.Property(x => x.OccurredOn).HasDefaultValueSql("SYSUTCDATETIME()");
+            entity.Property(x => x.Processed);
+            entity.Property(x => x.ProcessedOn);
         });
+
+        // MassTransit EF outbox/inbox tablolari ile publish ve consume tarafini dayanikli hale getirir.
+        modelBuilder.AddInboxStateEntity();
+        modelBuilder.AddOutboxMessageEntity();
+        modelBuilder.AddOutboxStateEntity();
     }
 }

@@ -37,6 +37,7 @@ var swaggerVersion = builder.Configuration.GetValue<string>("Swagger:Version") ?
 var signalRHubPath = builder.Configuration.GetValue<string>("Realtime:SignalR:HubPath") ?? "/hubs/jobs";
 var signalRMaxMessageSizeKb = builder.Configuration.GetValue<long?>("Realtime:SignalR:MaximumReceiveMessageSizeKb") ?? 64;
 var signalRDetailedErrors = builder.Configuration.GetValue<bool>("Realtime:SignalR:EnableDetailedErrors");
+var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -85,6 +86,7 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("Messaging:RabbitMq"));
 builder.Services.Configure<ConsumerOptions>(builder.Configuration.GetSection("Messaging:Consumer"));
+builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Messaging:Outbox"));
 builder.Services.Configure<OidcOptions>(builder.Configuration.GetSection("Auth:Oidc"));
 
 builder.Services.AddSignalR(options =>
@@ -112,6 +114,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             NameClaimType = "name",
             RoleClaimType = ClaimTypes.Role
         };
+
+        // SignalR browser client'lari JWT'yi querystring `access_token` ile gonderebilir.
+        // Bu hook sadece hub path icin token okumaya izin verir.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrWhiteSpace(accessToken) && path.StartsWithSegments(signalRHubPath))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization(options =>
@@ -125,6 +144,20 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddSingleton<IAuthorizationHandler, AllowedGroupHandler>();
 builder.Services.AddScoped<IClaimsTransformation, RbacClaimsTransformation>();
 
+if (corsAllowedOrigins.Length > 0)
+{
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("DefaultCorsPolicy", policy =>
+        {
+            policy.WithOrigins(corsAllowedOrigins)
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        });
+    });
+}
+
 // Job use-case'lerini API katmaninda is akisi olarak kaydeder.
 builder.Services.AddScoped<CreateDiscoveryJobUseCase>();
 builder.Services.AddScoped<CreatePasswordChangeJobUseCase>();
@@ -135,6 +168,22 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 builder.Services.AddMassTransit(configurator =>
 {
+    var outboxOptions = builder.Configuration.GetSection("Messaging:Outbox").Get<OutboxOptions>() ?? new OutboxOptions();
+
+    if (outboxOptions.Enabled)
+    {
+        configurator.AddEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(outbox =>
+        {
+            outbox.UseSqlServer();
+            outbox.QueryDelay = TimeSpan.FromSeconds(Math.Max(1, outboxOptions.QueryDelaySeconds));
+
+            if (outboxOptions.UseBusOutbox)
+            {
+                outbox.UseBusOutbox();
+            }
+        });
+    }
+
     configurator.AddConsumer<ServerUsageResultEventConsumer>();
     configurator.AddConsumer<ServerUpdateResultEventConsumer>();
     configurator.AddConsumer<JobProgressEventConsumer>();
@@ -144,22 +193,7 @@ builder.Services.AddMassTransit(configurator =>
         var options = context.GetRequiredService<IOptions<RabbitMqOptions>>().Value;
         var consumerOptions = context.GetRequiredService<IOptions<ConsumerOptions>>().Value;
 
-        cfg.Host(options.Host, options.Port, options.VirtualHost, host =>
-        {
-            host.Username(options.Username);
-            host.Password(options.Password);
-            host.Heartbeat(options.RequestedHeartbeat);
-
-            if (options.UseTls)
-            {
-                host.UseSsl(ssl =>
-                {
-                    ssl.ServerName = string.IsNullOrWhiteSpace(options.SslServerName)
-                        ? options.Host
-                        : options.SslServerName;
-                });
-            }
-        });
+        cfg.ConfigureHostDefaults(options);
 
         // Result event'lerini sabit exchange adinda toplar.
         cfg.Message<ServerUsageResultEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
@@ -169,9 +203,8 @@ builder.Services.AddMassTransit(configurator =>
         // API tarafi result event queue'sunu tuketir ve SignalR'a aktarir.
         cfg.ReceiveEndpoint(QueueNames.ServerResultEvents, endpoint =>
         {
-            endpoint.PrefetchCount = consumerOptions.PrefetchCount;
-            endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
-            endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
+            endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+            endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
             endpoint.ConfigureConsumer<ServerUsageResultEventConsumer>(context);
             endpoint.ConfigureConsumer<ServerUpdateResultEventConsumer>(context);
             endpoint.ConfigureConsumer<JobProgressEventConsumer>(context);
@@ -221,6 +254,10 @@ app.UseSerilogRequestLogging(options =>
 app.UseMiddleware<SecurityHeadersMiddleware>();
 
 app.UseHttpsRedirection();
+if (corsAllowedOrigins.Length > 0)
+{
+    app.UseCors("DefaultCorsPolicy");
+}
 app.UseAuthentication();
 app.UseAuthorization();
 

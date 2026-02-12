@@ -15,7 +15,8 @@
   - `ServerGroupRepository`
 - Messaging:
   - `MassTransitCommandPublisher`
-  - `RabbitMqOptions`, `ConsumerOptions`
+  - `RabbitMqOptions`, `ConsumerOptions`, `OutboxOptions`
+  - `MassTransitTopologyExtensions` (quorum/outbox endpoint defaults)
 - Security:
   - `AesGcmPayloadProtector`
   - `SensitiveDataRedactor`
@@ -24,6 +25,8 @@
 - Discovery/Update:
   - `DiscoveryEngine` + discovery strategies
   - `UpdateEngine` + update strategies
+- Verify:
+  - `VerifyEngine` (update sonrasi dogrulama)
 - Remote execution:
   - `PowerShellWinRmCommandExecutor`
   - `RemoteExecutionOptions`
@@ -42,6 +45,6 @@
 - `IAuditTrailWriter/Reader` implementasyonu API controller'larinda kullanilir.
 
 ## Sonraki Plan
-- ScheduledTask/IIS/COM+ update stratejilerinin WinRM/PowerShell ile gercek implementasyonu
 - UserRight discovery stratejisinin gercek implementasyonu
-- Verify akisinin gercek implementasyonu ve hata kodu standardizasyonu
+- Password-change job orkestrasyonu: AD (LDAPS) change + update + verify akisini tek job altinda tamamlamak
+- Mesajlasma hardening: DLQ policy + circuit-breaker/kill-switch config opsiyonlari

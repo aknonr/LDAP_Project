@@ -13,4 +13,6 @@ public sealed class RabbitMqOptions
     public bool UseTls { get; set; } = true;
     public string? SslServerName { get; set; }
     public ushort RequestedHeartbeat { get; set; } = 30;
+    public bool UseQuorumQueues { get; set; } = true;
+    public int? QuorumReplicationFactor { get; set; } = null;
 }

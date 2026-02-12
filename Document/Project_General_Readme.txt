@@ -30,12 +30,14 @@ Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin
 - `Document/Messaging_Topology_Readme.txt`
 - `Document/API_Contract_Readme.txt`
 - `Document/Realtime_Updates_Readme.txt`
+- `Document/Reliability_and_Error_Handling_Readme.txt`
 - `Document/Audit_and_Logging_Readme.txt`
 - `Document/Security_Checklist_Readme.txt`
 - `Document/Th_Api_Inventory_Readme.txt`
 - `Document/Ad_Ldaps_Change_Readme.txt`
 - `Document/Discovery_Engine_Readme.txt`
 - `Document/Update_Engine_Readme.txt`
+- `Document/Verify_Flow_Readme.txt`
 - `Document/roadmap.json`
 
 ## Tamamlanan Asamalar
@@ -64,14 +66,17 @@ Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin
 - Build pipeline ve referanslar stabil olduktan sonra tasimak daha dogru olur.
 
 ## Sonraki Asamalar
-1. Service disindaki update stratejilerinin gercek implementasyonu
-2. Verify akisinin gercek implementasyonu
+1. UserRight discovery stratejisinin gercek implementasyonu
+2. Password-change job orkestrasyonu: AD (LDAPS) change + update + verify
 3. PKG-014: UI + SignalR istemci entegrasyonu
 4. DTO ayirma katmani (kullanici talebiyle en son)
 
 ## Guncel Backend Notu
 - Service, ScheduledTask, IIS ve COM+ discovery stratejileri WinRM/PowerShell ile aktiflestirildi.
 - Service update stratejisi idempotent + hata kodu map ile aktiflestirildi.
+- ScheduledTask/IIS/COM+ update stratejileri WinRM/PowerShell ile aktiflestirildi.
+- Verify akisi aktif: update sonrasi (opsiyonel) verify komutu gonderilir ve final durum event ile UI'ya yansir.
+- RabbitMQ quorum queue + EF outbox hardening eklendi (HA + publish/consume dayanikliligi).
 
 ## Troubleshooting Notu
 - `dotnet list ... --vulnerable` komutu bu ortamda tekrar calistirildi ve basarili.

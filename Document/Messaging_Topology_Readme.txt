@@ -37,6 +37,12 @@ Bu dokuman PKG-009/010 ve PKG-012 kapsaminda gunceldir.
   - `Messaging:RabbitMq:UseTls`
   - `Messaging:RabbitMq:SslServerName`
   - `Messaging:RabbitMq:RequestedHeartbeat`
+  - `Messaging:RabbitMq:UseQuorumQueues`
+  - `Messaging:RabbitMq:QuorumReplicationFactor`
+- Outbox (dayaniklilik):
+  - `Messaging:Outbox:Enabled`
+  - `Messaging:Outbox:UseBusOutbox`
+  - `Messaging:Outbox:QueryDelaySeconds`
 - Consumer:
   - `Messaging:Consumer:PrefetchCount`
   - `Messaging:Consumer:ConcurrencyLimit`
@@ -45,11 +51,17 @@ Bu dokuman PKG-009/010 ve PKG-012 kapsaminda gunceldir.
   - `WorkerRoles:EnableUpdate`
   - `WorkerRoles:EnableVerify`
   - `WorkerRoles:EnableInventorySync`
+- Verify zinciri:
+  - `Verification:EnablePostUpdateVerification`
 
 ## Guvenlik
 - TLS port `5671` zorunlu.
 - Sifre payload'i plain degil, AES-GCM sifreli olarak tasinir.
 - Retry default: 3 deneme, 5 saniye.
+- Quorum icin `QuorumReplicationFactor` ortam bazli ayarlanmalidir (dev: 1, prod: 3).
 
 ## Not
 - `UpdateServerResourcesCommand` artik `TargetAccount` alanini tasir.
+- `VerifyServerCommand` artik `TargetAccount` alanini tasir.
+- Quorum queue aciksa command queue'lar durable ve HA davranir.
+- Outbox aktifse DB'de `InboxState/OutboxMessage/OutboxState` tablolari migration ile olusur ve publish/consume dayanikliligi artar.
