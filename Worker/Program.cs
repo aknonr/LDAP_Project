@@ -21,12 +21,29 @@ builder.Services.AddSerilog((services, configuration) =>
 
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("Messaging:RabbitMq"));
 builder.Services.Configure<ConsumerOptions>(builder.Configuration.GetSection("Messaging:Consumer"));
+builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Messaging:Outbox"));
 builder.Services.Configure<WorkerRoleOptions>(builder.Configuration.GetSection("WorkerRoles"));
+builder.Services.Configure<VerificationOptions>(builder.Configuration.GetSection("Verification"));
 
 var workerRoles = builder.Configuration.GetSection("WorkerRoles").Get<WorkerRoleOptions>() ?? new WorkerRoleOptions();
+var outboxOptions = builder.Configuration.GetSection("Messaging:Outbox").Get<OutboxOptions>() ?? new OutboxOptions();
 
 builder.Services.AddMassTransit(configurator =>
 {
+    if (outboxOptions.Enabled)
+    {
+        configurator.AddEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(outbox =>
+        {
+            outbox.UseSqlServer();
+            outbox.QueryDelay = TimeSpan.FromSeconds(Math.Max(1, outboxOptions.QueryDelaySeconds));
+
+            if (outboxOptions.UseBusOutbox)
+            {
+                outbox.UseBusOutbox();
+            }
+        });
+    }
+
     if (workerRoles.EnableDiscovery)
     {
         configurator.AddConsumer<DiscoverServerUsageConsumer>();
@@ -47,22 +64,7 @@ builder.Services.AddMassTransit(configurator =>
         var options = context.GetRequiredService<IOptions<RabbitMqOptions>>().Value;
         var consumerOptions = context.GetRequiredService<IOptions<ConsumerOptions>>().Value;
 
-        cfg.Host(options.Host, options.Port, options.VirtualHost, host =>
-        {
-            host.Username(options.Username);
-            host.Password(options.Password);
-            host.Heartbeat(options.RequestedHeartbeat);
-
-            if (options.UseTls)
-            {
-                host.UseSsl(ssl =>
-                {
-                    ssl.ServerName = string.IsNullOrWhiteSpace(options.SslServerName)
-                        ? options.Host
-                        : options.SslServerName;
-                });
-            }
-        });
+        cfg.ConfigureHostDefaults(options);
 
         cfg.Message<ServerUsageResultEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
         cfg.Message<ServerUpdateResultEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
@@ -72,9 +74,8 @@ builder.Services.AddMassTransit(configurator =>
         {
             cfg.ReceiveEndpoint(QueueNames.ServerDiscoveryCommands, endpoint =>
             {
-                endpoint.PrefetchCount = consumerOptions.PrefetchCount;
-                endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
-                endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
+                endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+                endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
                 endpoint.ConfigureConsumer<DiscoverServerUsageConsumer>(context);
             });
         }
@@ -83,9 +84,8 @@ builder.Services.AddMassTransit(configurator =>
         {
             cfg.ReceiveEndpoint(QueueNames.ServerUpdateCommands, endpoint =>
             {
-                endpoint.PrefetchCount = consumerOptions.PrefetchCount;
-                endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
-                endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
+                endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+                endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
                 endpoint.ConfigureConsumer<UpdateServerResourcesConsumer>(context);
             });
         }
@@ -94,9 +94,8 @@ builder.Services.AddMassTransit(configurator =>
         {
             cfg.ReceiveEndpoint(QueueNames.ServerVerifyCommands, endpoint =>
             {
-                endpoint.PrefetchCount = consumerOptions.PrefetchCount;
-                endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
-                endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
+                endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+                endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
                 endpoint.ConfigureConsumer<VerifyServerConsumer>(context);
             });
         }

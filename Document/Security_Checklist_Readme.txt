@@ -15,9 +15,11 @@
 
 ## Messaging
 - [x] RabbitMQ TLS (`5671`) yapisi
+- [x] Quorum queue secenegi (HA icin)
 - [x] Prefetch/concurrency config bazli
 - [x] Retry politikasi aktif
 - [x] Result event topology sabit exchange adi
+- [x] EF Outbox (publish/consume dayaniklilik)
 
 ## Data ve Secrets
 - [x] AES-GCM payload encryption

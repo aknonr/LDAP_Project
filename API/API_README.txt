@@ -26,6 +26,12 @@
 - `X-Correlation-Id` header normalize edilip log ve response'a yazilir.
 - Response security headers zorunlu eklenir (`nosniff`, `deny frame`, CSP).
 - Password alanlari loglanmaz; audit summary sanitize edilir.
+- UI ayri deploy olacaksa CORS config kullanilir: `Cors:AllowedOrigins`.
+- SignalR JWT destegi: browser client icin hub path'te `access_token` querystring okunur.
+
+## Akis Notu
+- `POST /jobs/password-change` su an AD'de sifre degistirme (LDAPS change) adimini orkestre etmez.
+- Mevcut davranis: update + (opsiyonel) verify akisini baslatir; AD change + update + verify orkestrasyonu sonraki adimdir.
 
 ## SignalR Kurulum Notu (Windows)
 - Ayrica "SignalR server" kurulumu yapman gerekmez; ASP.NET Core icinde gelir.
@@ -38,8 +44,9 @@
 
 ## Paket Durumu
 - `Swashbuckle.AspNetCore` `10.1.0`
-- `MassTransit` `9.0.1`
-- `MassTransit.RabbitMQ` `9.0.1`
+- `MassTransit` `8.4.1`
+- `MassTransit.RabbitMQ` `8.4.1`
+- `MassTransit.EntityFrameworkCore` `8.4.1` (EF outbox/inbox)
 - `Microsoft.AspNetCore.Authentication.JwtBearer` `8.0.23`
 - SignalR server icin ek NuGet zorunlu degil (`Microsoft.AspNetCore.App` ile gelir).
 - Scale-out opsiyonu (ileri asama): `Microsoft.AspNetCore.SignalR.StackExchangeRedis`
