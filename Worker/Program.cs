@@ -1,10 +1,12 @@
 using Application.Messaging;
+using Application.Messaging.Events;
 using Infrastructure;
 using Infrastructure.Messaging;
 using MassTransit;
 using Microsoft.Extensions.Options;
 using Serilog;
 using Worker.Consumers;
+using Worker.Jobs;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -49,10 +51,16 @@ builder.Services.AddMassTransit(configurator =>
             }
         });
 
+        // Result event'leri API tarafi ile ayni exchange adindan publish edilir.
+        cfg.Message<ServerUsageResultEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
+        cfg.Message<ServerUpdateResultEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
+        cfg.Message<JobProgressEvent>(message => message.SetEntityName(QueueNames.ServerResultEvents));
+
         cfg.ReceiveEndpoint(QueueNames.ServerDiscoveryCommands, endpoint =>
         {
             endpoint.PrefetchCount = consumerOptions.PrefetchCount;
             endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
+            endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
             endpoint.ConfigureConsumer<DiscoverServerUsageConsumer>(context);
         });
 
@@ -60,6 +68,7 @@ builder.Services.AddMassTransit(configurator =>
         {
             endpoint.PrefetchCount = consumerOptions.PrefetchCount;
             endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
+            endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
             endpoint.ConfigureConsumer<UpdateServerResourcesConsumer>(context);
         });
 
@@ -67,12 +76,14 @@ builder.Services.AddMassTransit(configurator =>
         {
             endpoint.PrefetchCount = consumerOptions.PrefetchCount;
             endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
+            endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
             endpoint.ConfigureConsumer<VerifyServerConsumer>(context);
         });
     });
 });
 
 builder.Services.AddHostedService<Worker.Worker>();
+builder.Services.AddHostedService<InventorySyncJob>();
 builder.Services.AddInfrastructure(builder.Configuration);
 
 var host = builder.Build();

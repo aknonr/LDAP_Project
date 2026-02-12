@@ -2,6 +2,7 @@ using Application.Abstractions.Messaging;
 using Application.Abstractions.Repositories;
 using Application.Abstractions.Security;
 using Application.Models;
+using Application.Messaging;
 using Application.Messaging.Commands;
 using Application.UseCases.Jobs.Models;
 using Domain.Entities;
@@ -98,8 +99,16 @@ public sealed class CreatePasswordChangeJobUseCase
         await _jobRepository.AddAsync(job, cancellationToken);
         await _jobRepository.SaveChangesAsync(cancellationToken);
 
-        // Yeni sifreyi MQ payload'i icin AES-GCM ile sifreler (plain sifre log/DB/MQ'ya yazilmaz).
-        var encryptedPayload = await _payloadProtector.EncryptAsync(input.NewPassword, cancellationToken);
+        EncryptedPayload encryptedPayload;
+        try
+        {
+            // Yeni sifreyi MQ payload'i icin AES-GCM ile sifreler (plain sifre log/DB/MQ'ya yazilmaz).
+            encryptedPayload = await _payloadProtector.EncryptAsync(input.NewPassword, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return UseCaseResult<JobCreatedOutput>.Failure("PAYLOAD_PROTECTION_FAILED", ex.Message);
+        }
 
         foreach (var target in job.Targets)
         {
@@ -110,6 +119,7 @@ public sealed class CreatePasswordChangeJobUseCase
                 TargetId = target.Id,
                 ServerName = target.ServerName,
                 IpAddress = target.IpAddress,
+                TargetAccount = input.TargetAccount,
                 EncryptedPassword = encryptedPayload,
                 CorrelationId = input.CorrelationId
             };

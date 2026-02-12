@@ -133,9 +133,12 @@ public sealed class AdpmDbContext : DbContext
         {
             entity.ToTable("ServerInventories");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ExternalId).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Hostname).HasMaxLength(200).IsRequired();
             entity.Property(x => x.IpAddress).HasMaxLength(100);
             entity.Property(x => x.CreatedDate).HasDefaultValueSql("SYSUTCDATETIME()");
+            entity.Property(x => x.UpdatedDate);
+            entity.HasIndex(x => x.ExternalId);
             entity.HasIndex(x => x.Hostname);
             entity.HasOne(x => x.ServerGroup)
                 .WithMany(x => x.Servers)
@@ -154,7 +157,8 @@ public sealed class AdpmDbContext : DbContext
             entity.Property(x => x.ServerGroup).HasMaxLength(200).IsRequired();
             entity.Property(x => x.ResultSummary).HasMaxLength(1000).IsRequired();
             entity.Property(x => x.CorrelationId).HasMaxLength(100);
-        
+            entity.HasIndex(x => x.When);
+            entity.HasIndex(x => x.CorrelationId);
         });
 
         modelBuilder.Entity<OutboxMessage>(entity =>
