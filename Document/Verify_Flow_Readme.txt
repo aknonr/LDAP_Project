@@ -31,4 +31,5 @@
 
 ## Notlar
 - Verify su an kimlik/assignment kontrolu yapar; "sifrenin gercekten degistigi" (AD bind/oturum acma) kontrolu ayri bir asamadir.
+- Target icin update `no-op` ise (hedef account kullanimini bulamazsa) verify komutu gonderilmez.
 - UI icin canli guncelleme SignalR ile gelir; SignalR kesilirse UI REST endpointlerinden durumu tekrar okuyabilir.

@@ -17,7 +17,7 @@
 - IISWebApp (WinRM/PowerShell ile aktif)
 - IISVirtualDir (WinRM/PowerShell ile aktif)
 - COMPlus (WinRM/PowerShell ile aktif)
-- UserRight
+- UserRight (WinRM/PowerShell + secedit export ile aktif)
 
 ## Akis
 1. Worker discovery command alir.
@@ -26,6 +26,7 @@
 4. `ServerUsageResultEvent` publish edilir.
 
 ## Not
-- UserRight strategy su an stub doner.
 - Service discovery sonucu `ResourceName=ServiceName`, `ResourcePath=StartName` olarak kaydedilir.
+- UserRight discovery sonucu `ResourceName=RightName (or. SeServiceLogonRight)`, `ResourcePath=Account (or. DOMAIN\\user)` olarak kaydedilir.
+- UserRight stratejisi `secedit.exe /export /areas USER_RIGHTS` kullandigi icin remote tarafta yeterli yetki (genellikle local admin) gerektirir. Yetki yoksa hedef `ACCESS_DENIED` ile fail olur.
 - Remote timeout ayarlari `Worker/appsettings.json` altindaki `RemoteExecution` bolumunden yonetilir.

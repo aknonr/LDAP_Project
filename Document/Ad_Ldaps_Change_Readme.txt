@@ -13,7 +13,15 @@
 - LDAPS zorunlu: port `636` ve `UseSsl=true`.
 - Sertifika dogrulama `ValidateServerCertificate` ile kontrol edilir.
 - Password degerleri loglanmaz.
-- `UserDnOrUpn` degeri genelde DN olmalidir (CN=...,OU=...,DC=...).
+- `UserDnOrUpn` girdisi su formatlardan biri olabilir:
+  - DN: `CN=...,OU=...,DC=...`
+  - UPN: `user@domain`
+  - `DOMAIN\\user` (sAMAccountName)
+- Servis DN verilmediyse, RootDSE `defaultNamingContext` uzerinden LDAP search ile DN resolve eder.
+
+## Idempotency (Retry) Notu
+- MQ/Worker retry senaryolarinda, AD change daha once basarili olup consumer tekrar calisirsa `oldPassword` INVALID_CREDENTIALS olabilir.
+- Bu durumda servis `newPassword` ile bind edebiliyorsa "zaten degismis" kabul edip `Success` doner.
 
 ## Error Code Mapping
 - `INVALID_CREDENTIALS` -> bind/auth hatasi

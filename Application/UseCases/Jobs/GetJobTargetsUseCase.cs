@@ -23,6 +23,11 @@ public sealed class GetJobTargetsUseCase
         GetJobTargetsInput input,
         CancellationToken cancellationToken)
     {
+        if (input.Skip < 0)
+        {
+            return UseCaseResult<JobTargetsOutput>.Failure("INVALID_SKIP", "Skip 0 veya daha buyuk olmalidir.");
+        }
+
         if (input.Take <= 0 || input.Take > 2000)
         {
             return UseCaseResult<JobTargetsOutput>.Failure("INVALID_TAKE", "Take 1-2000 araliginda olmalidir.");

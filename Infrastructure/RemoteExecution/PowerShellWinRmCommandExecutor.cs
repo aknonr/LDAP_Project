@@ -11,6 +11,11 @@ public sealed partial class PowerShellWinRmCommandExecutor : IRemoteCommandExecu
     private readonly IOptionsMonitor<RemoteExecutionOptions> _options;
     private readonly ILogger<PowerShellWinRmCommandExecutor> _logger;
 
+    private readonly object _circuitLock = new();
+    private DateTimeOffset _circuitOpenUntil = DateTimeOffset.MinValue;
+    private readonly Queue<(DateTimeOffset Timestamp, bool IsFailure)> _circuitWindow = new();
+    private int _circuitFailureCount;
+
     public PowerShellWinRmCommandExecutor(
         IOptionsMonitor<RemoteExecutionOptions> options,
         ILogger<PowerShellWinRmCommandExecutor> logger)
@@ -38,6 +43,13 @@ public sealed partial class PowerShellWinRmCommandExecutor : IRemoteCommandExecu
         if (!options.Enabled)
         {
             return RemoteCommandExecutionResult.Failure("WINRM_CONNECT_FAILED", "Remote execution devre disi.");
+        }
+
+        if (options.CircuitBreaker.Enabled && IsCircuitOpen())
+        {
+            return RemoteCommandExecutionResult.Failure(
+                "CIRCUIT_OPEN",
+                "Remote execution circuit open (gecici olarak durduruldu).");
         }
 
         if (!string.Equals(options.Transport, "WinRM.PowerShell", StringComparison.OrdinalIgnoreCase))
@@ -75,10 +87,12 @@ public sealed partial class PowerShellWinRmCommandExecutor : IRemoteCommandExecu
 
             if (process.ExitCode == 0)
             {
+                TrackCircuitOutcome(options.CircuitBreaker, isFailure: false);
                 return RemoteCommandExecutionResult.Success(standardOutput);
             }
 
             var mappedErrorCode = MapErrorCode(standardError);
+            TrackCircuitOutcome(options.CircuitBreaker, isFailure: IsSystemicFailure(mappedErrorCode));
             _logger.LogWarning(
                 "Remote command basarisiz. Server={Server}, ExitCode={ExitCode}, ErrorCode={ErrorCode}",
                 serverName,
@@ -92,13 +106,87 @@ public sealed partial class PowerShellWinRmCommandExecutor : IRemoteCommandExecu
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            TrackCircuitOutcome(options.CircuitBreaker, isFailure: true);
             return RemoteCommandExecutionResult.Failure("TIMEOUT", "Remote command timeout.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Remote command exception. Server={Server}", serverName);
+            TrackCircuitOutcome(options.CircuitBreaker, isFailure: true);
             return RemoteCommandExecutionResult.Failure("WINRM_CONNECT_FAILED", "Remote command calistirilamadi.");
         }
+    }
+
+    private bool IsCircuitOpen()
+    {
+        var now = DateTimeOffset.UtcNow;
+        lock (_circuitLock)
+        {
+            return now < _circuitOpenUntil;
+        }
+    }
+
+    private void TrackCircuitOutcome(RemoteCircuitBreakerOptions options, bool isFailure)
+    {
+        if (!options.Enabled)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var trackingSeconds = Math.Max(10, options.TrackingPeriodSeconds);
+        var windowStart = now - TimeSpan.FromSeconds(trackingSeconds);
+
+        lock (_circuitLock)
+        {
+            // Window temizle
+            while (_circuitWindow.Count > 0 && _circuitWindow.Peek().Timestamp < windowStart)
+            {
+                var removed = _circuitWindow.Dequeue();
+                if (removed.IsFailure)
+                {
+                    _circuitFailureCount = Math.Max(0, _circuitFailureCount - 1);
+                }
+            }
+
+            _circuitWindow.Enqueue((now, isFailure));
+            if (isFailure)
+            {
+                _circuitFailureCount++;
+            }
+
+            var total = _circuitWindow.Count;
+            var minThroughput = Math.Max(1, options.MinimumThroughput);
+            if (total < minThroughput)
+            {
+                return;
+            }
+
+            var failureThreshold = options.FailureThreshold <= 0 ? 0.5 : options.FailureThreshold;
+            var failureRatio = (double)_circuitFailureCount / total;
+            if (failureRatio < failureThreshold)
+            {
+                return;
+            }
+
+            var breakSeconds = Math.Max(10, options.BreakDurationSeconds);
+            _circuitOpenUntil = now.AddSeconds(breakSeconds);
+            _circuitWindow.Clear();
+            _circuitFailureCount = 0;
+
+            _logger.LogWarning(
+                "Remote execution circuit acildi. TrackingSeconds={TrackingSeconds}, FailureRatio={FailureRatio:0.00}, BreakSeconds={BreakSeconds}",
+                trackingSeconds,
+                failureRatio,
+                breakSeconds);
+        }
+    }
+
+    private static bool IsSystemicFailure(string errorCode)
+    {
+        return string.Equals(errorCode, "WINRM_CONNECT_FAILED", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(errorCode, "TIMEOUT", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(errorCode, "ACCESS_DENIED", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildEncodedCommand(string serverName, string scriptBlock, int connectTimeoutSeconds)

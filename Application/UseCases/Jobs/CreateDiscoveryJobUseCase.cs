@@ -44,6 +44,11 @@ public sealed class CreateDiscoveryJobUseCase
             return UseCaseResult<JobCreatedOutput>.Failure("REQUESTED_BY_REQUIRED", "RequestedBy zorunludur.");
         }
 
+        if (string.IsNullOrWhiteSpace(input.RequestedBySubject))
+        {
+            return UseCaseResult<JobCreatedOutput>.Failure("REQUESTED_BY_REQUIRED", "RequestedBySubject zorunludur.");
+        }
+
         var serverGroup = await _serverGroupRepository.GetByExternalIdAsync(
             input.ServerGroupExternalId,
             cancellationToken);
@@ -65,6 +70,7 @@ public sealed class CreateDiscoveryJobUseCase
             Type = JobType.Discovery,
             Status = JobStatus.Pending,
             RequestedBy = input.RequestedBy,
+            RequestedBySubject = input.RequestedBySubject,
             ServerGroupId = serverGroup.Id,
             CorrelationId = input.CorrelationId
         };
@@ -98,6 +104,10 @@ public sealed class CreateDiscoveryJobUseCase
 
             await _commandPublisher.PublishDiscoveryAsync(command, cancellationToken);
         }
+
+        // Bus outbox aciksa, publish edilen mesajlar EF Outbox tablolarina yazilabilir.
+        // Bu nedenle publish sonrasi SaveChanges ile outbox kayitlarini da kalici hale getiririz.
+        await _jobRepository.SaveChangesAsync(cancellationToken);
 
         return UseCaseResult<JobCreatedOutput>.Success(new JobCreatedOutput
         {

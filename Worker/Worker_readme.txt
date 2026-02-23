@@ -23,7 +23,7 @@
   - `WorkerRoles:EnableVerify`
   - `WorkerRoles:EnableInventorySync`
 - RabbitMQ + MassTransit:
-  - Queue consume: `server.discovery.commands`, `server.update.commands`, `server.verify.commands`
+  - Queue consume: `ad.passwordchange.commands`, `server.discovery.commands`, `server.update.commands`, `server.verify.commands`
   - Result publish exchange: `server.result.events`
   - Quorum queue (opsiyonel): `UseQuorumQueues`
   - EF Outbox (opsiyonel): `Messaging:Outbox`
@@ -37,11 +37,13 @@
 
 ## LDAPS Notu
 - Worker config'inde `Ldap` ayarlari bulunur (PKG-006).
-- AD sifre degistirme servisi mevcut; password-change job akisi ile orkestrasyon sonraki adimdir.
+- AD sifre degistirme servisi, password-change job orkestrasyonu icinde calisir:
+  - `StartPasswordChangeJobCommand` consume edilir
+  - AD (LDAPS) change (old+new) -> update -> (opsiyonel) verify zinciri baslar
 
 ## Sonraki Plan
-- UserRight discovery stratejisinin gercek implementasyonu.
-- Password-change job icin AD (LDAPS) change + update + verify orkestrasyonu.
+- Resilience hardening: DLQ + circuit-breaker/kill-switch (PKG-017).
+- Key rotation / multi-key decrypt (PKG-023).
 
 ## Yuk Dagitimi ve Failover
 - Ayni queue'yu birden fazla worker instance tukettiginde `competing consumers` modeli ile yuk dagitilir.

@@ -9,9 +9,17 @@
   - `CreatePasswordChangeJobUseCase`
   - `GetJobStatusUseCase`
   - `GetJobTargetsUseCase`
+- Admin use-case'leri:
+  - `ListUsersUseCase`
+  - `UpsertUserUseCase`
+  - `SetUserActiveUseCase`
+  - `SetUserRolesUseCase`
+  - `ListRolesUseCase`
 - Messaging contract'lari:
   - Command: `DiscoverServerUsageCommand`, `UpdateServerResourcesCommand`, `VerifyServerCommand`
   - Event: `ServerUsageResultEvent`, `ServerUpdateResultEvent`, `JobProgressEvent`
+- Repository abstraction:
+  - `IJobRepository`, `IServerGroupRepository`, `IIdentityRepository`
 - Security abstraction:
   - `IPayloadProtector`
 - Tracking abstraction:
@@ -44,5 +52,5 @@
 - DTO ayirma katmani kullanici talebiyle sonraki/gec asamaya ertelendi.
 
 ## Sonraki Plan
-- Password-change job orkestrasyonu: AD change + update + verify
-- Yetki/rol modelini (SuperAdmin rapor) genisletme
+- PKG-019: User/Role yonetimi: soft delete + audit raporlama (tamamlama)
+- PKG-020: Permission modeli (fine-grained authorization)

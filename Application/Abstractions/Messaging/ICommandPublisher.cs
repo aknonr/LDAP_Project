@@ -8,6 +8,11 @@ namespace Application.Abstractions.Messaging;
 public interface ICommandPublisher
 {
     /// <summary>
+    /// Password-change job orkestrasyonunu baslatan komutu gonderir.
+    /// </summary>
+    Task PublishStartPasswordChangeJobAsync(StartPasswordChangeJobCommand command, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Discovery komutu gonderir.
     /// </summary>
     Task PublishDiscoveryAsync(DiscoverServerUsageCommand command, CancellationToken cancellationToken);

@@ -64,6 +64,7 @@ public static class DependencyInjection
 
         services.AddScoped<IJobRepository, JobRepository>();
         services.AddScoped<IServerGroupRepository, ServerGroupRepository>();
+        services.AddScoped<IIdentityRepository, IdentityRepository>();
         services.AddScoped<ICommandPublisher, MassTransitCommandPublisher>();
         services.AddScoped<IPayloadProtector, AesGcmPayloadProtector>();
         services.AddScoped<IRoleResolver, RoleResolver>();

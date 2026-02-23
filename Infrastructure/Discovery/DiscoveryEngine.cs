@@ -55,7 +55,12 @@ public sealed class DiscoveryEngine : IDiscoveryEngine
 
             resources = resources
                 .Where(item => !string.IsNullOrWhiteSpace(item.ResourceName))
-                .GroupBy(item => new { item.ResourceType, Name = item.ResourceName.Trim() })
+                .GroupBy(item => new
+                {
+                    item.ResourceType,
+                    Name = item.ResourceName.Trim(),
+                    Path = (item.ResourcePath ?? string.Empty).Trim()
+                })
                 .Select(group => group.First())
                 .ToList();
 
@@ -65,12 +70,9 @@ public sealed class DiscoveryEngine : IDiscoveryEngine
                 context.TargetId,
                 resources.Count);
 
-            if (resources.Count == 0)
-            {
-                return await FailAndUpdate(target, "NOT_IMPLEMENTED", "Discovery engine henuz entegre edilmedi.", cancellationToken);
-            }
+            var now = DateTimeOffset.UtcNow;
 
-            // Var olan kaynaklari temizleyip yeni kaynaklari yaz.
+            // Var olan kaynaklari temizleyip yeni kaynaklari yaz (0 sonuc olsa bile temizlemeliyiz).
             if (target.Resources.Count > 0)
             {
                 _dbContext.JobResources.RemoveRange(target.Resources);
@@ -86,14 +88,14 @@ public sealed class DiscoveryEngine : IDiscoveryEngine
                     ResourceName = resource.ResourceName,
                     ResourcePath = resource.ResourcePath,
                     Status = TargetStatus.Success,
-                    UpdatedAt = DateTimeOffset.UtcNow
+                    UpdatedAt = now
                 });
             }
 
             target.Status = TargetStatus.Success;
             target.ErrorCode = null;
             target.ErrorMessage = null;
-            target.UpdatedAt = DateTimeOffset.UtcNow;
+            target.UpdatedAt = now;
 
             await _dbContext.SaveChangesAsync(cancellationToken);
 

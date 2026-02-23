@@ -13,6 +13,12 @@ public sealed class MassTransitCommandPublisher : ICommandPublisher
         _sendEndpointProvider = sendEndpointProvider;
     }
 
+    public async Task PublishStartPasswordChangeJobAsync(StartPasswordChangeJobCommand command, CancellationToken cancellationToken)
+    {
+        // EndpointConvention map'ine gore password-change orchestrator komutunu gonderir.
+        await _sendEndpointProvider.Send(command, cancellationToken);
+    }
+
     public async Task PublishDiscoveryAsync(DiscoverServerUsageCommand command, CancellationToken cancellationToken)
     {
         // EndpointConvention map'ine gore discovery command gonderir.

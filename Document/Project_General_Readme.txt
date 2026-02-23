@@ -33,11 +33,13 @@ Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin
 - `Document/Reliability_and_Error_Handling_Readme.txt`
 - `Document/Audit_and_Logging_Readme.txt`
 - `Document/Security_Checklist_Readme.txt`
+- `Document/User_Role_Management_Readme.txt`
 - `Document/Th_Api_Inventory_Readme.txt`
 - `Document/Ad_Ldaps_Change_Readme.txt`
 - `Document/Discovery_Engine_Readme.txt`
 - `Document/Update_Engine_Readme.txt`
 - `Document/Verify_Flow_Readme.txt`
+- `Document/agent_handoff.json` (baska bir AI ile devam icin, mevcut durum + eksikler + sonraki adimlar)
 - `Document/roadmap.json`
 
 ## Tamamlanan Asamalar
@@ -52,6 +54,11 @@ Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin
 - `PKG-011 Adim 3`: API Controller + DI + MQ publish
 - `PKG-012`: SignalR hub + API result consumer + canli event akisi
 - `PKG-013`: Correlation middleware + request logging enrich + security headers + audit trail/rapor endpoint
+- `PKG-015`: UserRight discovery stratejisi (WinRM/PowerShell + secedit export)
+- `PKG-016`: Password-change orkestrasyonu (AD change -> update -> verify)
+- `PKG-017`: Resilience hardening (retry + kill-switch + circuit-breaker)
+- `PKG-018`: Authorization hardening (DB allowlist + job/hub authz)
+- `PKG-019 (kismi)`: Admin user/role API + RBAC seed/bootstrap
 
 ## Mimari Baglanti (PKG-012/013)
 1. API job olusturur ve command queue'ya yollar.
@@ -66,10 +73,32 @@ Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin
 - Build pipeline ve referanslar stabil olduktan sonra tasimak daha dogru olur.
 
 ## Sonraki Asamalar
-1. UserRight discovery stratejisinin gercek implementasyonu
-2. Password-change job orkestrasyonu: AD (LDAPS) change + update + verify
-3. PKG-014: UI + SignalR istemci entegrasyonu
-4. DTO ayirma katmani (kullanici talebiyle en son)
+1. `PKG-019`: User/Role yonetimi: soft delete + audit raporlama (tamamlama)
+2. `PKG-014`: UI + SignalR istemci entegrasyonu (Phase 2)
+3. `PKG-020`: Permission modeli (fine-grained authorization)
+4. `PKG-021`: Observability v2 (OpenTelemetry + healthchecks + rate limiting)
+5. `PKG-022`: SignalR scale-out (backplane) + deployment guide
+6. `PKG-023`: Key rotation + secret/certificate rotation runbook
+7. DTO ayirma katmani (kullanici talebiyle en son)
+
+## PKG-014 (UI) Detaylari (Phase 2)
+- UI stack: `TBD` (React veya Blazor). Roadmap bunu bilerek acik birakiyor.
+- Sayfalar: `Dashboard`, `Discovery`, `Password Change Form`, `Job Detail`, `Unauthorized`.
+- Liste performansi: 2000+ target icin `paging + virtualization` zorunlu.
+- Tab ayrimi: `Basarili` / `Basarisiz` (target listesinde filtre).
+- Kolonlar: `Server`, `Status`, `ResourceType`, `ErrorCode`, `ErrorMessage`, `UpdatedAt`.
+- Yetki bazli UI guard: Viewer teknik detaylari gorememeli; Operator/Admin job baslatabilmeli.
+- Realtime: SignalR `jobUpdated` / `targetUpdated` eventleri ile canli guncelleme; ama kaynak-of-truth REST/DB.
+- Deploy: UI ve API ayri origin olacagi icin API tarafinda `Cors:AllowedOrigins` ayari yapilacak.
+- Windows/IIS notu: SignalR sunucu kurulumu yok; IIS host edilecekse `WebSocket Protocol` acik olmali (detay: `Document/Realtime_Updates_Readme.txt`).
+
+## Kurumsal Backlog (PKG-018+)
+- `PKG-018 (tamamlandi)`: Authorization hardening: DB allowlist (kullanici DB'de yoksa 403) + `jobId` bazli erisim kontrolu + hub subscription authorization.
+- `PKG-019`: User/Role yonetimi: Admin/SuperAdmin API + soft delete (`IsActive=false`) + rol atama/geri alma.
+- `PKG-020`: Permission modeli: sadece `Role` degil, ince yetkiler icin `Permission` tablosu/policy modeli.
+- `PKG-021`: Observability v2: OpenTelemetry (trace/metric) + healthcheck + rate limiting.
+- `PKG-022`: SignalR scale-out: API scale-out senaryosunda backplane (or. Redis) veya sticky-session karari + deploy guide.
+- `PKG-023`: Key rotation: AES-GCM shared key icin `KeyId` rotation plani ve sertifika/secret yenileme runbook'u.
 
 ## Guncel Backend Notu
 - Service, ScheduledTask, IIS ve COM+ discovery stratejileri WinRM/PowerShell ile aktiflestirildi.

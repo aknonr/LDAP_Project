@@ -28,6 +28,22 @@ public sealed class JobRepository : IJobRepository
             .FirstOrDefaultAsync(job => job.Id == jobId, cancellationToken);
     }
 
+    public Task<JobAccessInfo?> GetAccessInfoAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        // Job erisim kontrolu icin minimum alanlari okur.
+        return _dbContext.Jobs
+            .AsNoTracking()
+            .Where(job => job.Id == jobId)
+            .Select(job => new JobAccessInfo
+            {
+                JobId = job.Id,
+                RequestedBy = job.RequestedBy,
+                RequestedBySubject = job.RequestedBySubject,
+                ServerGroupId = job.ServerGroupId
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<JobTarget>> GetTargetsAsync(Guid jobId, int skip, int take, CancellationToken cancellationToken)
     {
         // Hedefleri stabil sirayla sayfalar.

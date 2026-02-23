@@ -1,0 +1,833 @@
+{
+  "meta": {
+    "documentType": "agent_handoff",
+    "projectName": "EnterpriseADPasswordManager",
+    "solution": "LDAP_Project.sln",
+    "projectRoot": "c:\\Users\\dmtak\\Desktop\\LDAP Proje\\LDAP_Project",
+    "generatedAt": {
+      "local": "2026-02-15T00:41:48.7442242+03:00",
+      "utc": "2026-02-14T21:41:48.7472264Z"
+    },
+    "language": "tr-TR",
+    "targetStack": {
+      "language": "C#",
+      "frameworkNow": ".NET 8 (net8.0)",
+      "frameworkFuture": ".NET 10 (plan)",
+      "db": "SQL Server 2022",
+      "architecture": "Onion Architecture + Worker Services + Event Driven",
+      "mq": "RabbitMQ + MassTransit",
+      "realtime": "SignalR"
+    },
+    "tooling": {
+      "dotnet": {
+        "sdkVersion": "9.0.311",
+        "hostVersion": "9.0.13",
+        "net8RuntimeInstalled": "8.0.24",
+        "note": "Bu repo net8.0 target'lar. .NET 9 SDK ile build/run calisir. CLI'yi .NET 8 SDK'ya pinlemek istersen global.json eklenebilir."
+      },
+      "gitCli": {
+        "available": false,
+        "note": "Repo'da .git var ama makinede git komutu PATH'te degil (git --version calismiyor)."
+      }
+    },
+    "repoLayout": {
+      "rootFolders": [
+        "API",
+        "Application",
+        "Domain",
+        "Infrastructure",
+        "Worker",
+        "Document"
+      ],
+      "srcFolderMigration": {
+        "required": false,
+        "status": "not_moved",
+        "note": "Roadmap'te src/ onerisi var; mevcut kok dizin yapisi teknik olarak calisir. Referanslar oturduktan sonra tasima daha risksiz."
+      }
+    }
+  },
+  "user_preferences": {
+    "executionStyle": [
+      "Adim adim ilerle, sirayi bozma",
+      "Backend-oncelikli; UI daha sonra",
+      "Her degisiklik ilgili readme/dokumanlarda yazilmali",
+      "Kodlarda gerekli yerlerde kisa yorumlarla amac aciklanmali"
+    ],
+    "engineeringBar": [
+      "SOLID ve OOP kurallarini ezmeden ilerle",
+      "Yuksek guvenlik: sifre/secret loglanmaz; DB/MQ plain sifre yok",
+      "Event-driven zorunlu; DB polling yok (outbox haric)",
+      "Concurrency kontrollu: PrefetchCount ve ConcurrencyLimit config'ten"
+    ]
+  },
+  "global_constraints": [
+    "Reset yok; sadece change (oldPassword + newPassword).",
+    "Disaridan erisim yok; sadece ic ag + internal DNS.",
+    "DB ve loglarda sifre yok; sadece memory.",
+    "MQ mesajlarinda sifre plain olmaz; AES-GCM ile encrypt edilir.",
+    "LDAP sadece LDAPS 636.",
+    "UI ve API ayri deploy edilebilir.",
+    "Event-driven zorunlu; DB polling yok.",
+    "Concurrency kontrollu: PrefetchCount ve UseConcurrencyLimit configten."
+  ],
+  "roadmap_status": {
+    "sourceRoadmapFile": "Document/roadmap.json",
+    "roadmapVersion": "1.4.0",
+    "completedPackages": [
+      "PKG-002 (Config & Secrets + Serilog)",
+      "PKG-003 (EF Core model + DbContext + migrations)",
+      "PKG-004 (OIDC placeholder + group allowlist + RBAC role mapping)",
+      "PKG-005 (TH API inventory sync)",
+      "PKG-006 (LDAPS password change servisi - tek basina servis, orkestrasyon degil)",
+      "PKG-007 (Discovery engine + stratejiler)",
+      "PKG-008 (Update engine + stratejiler, idempotent + error code map)",
+      "PKG-009/010 (MassTransit + RabbitMQ topology + Worker consumers + concurrency/retry)",
+      "PKG-011 Adim 3 (API Controllers + DI wiring + MQ publish)",
+      "PKG-012 (SignalR canli guncellemeler, API event bridge)",
+      "PKG-013 (Audit + observability hardening)",
+      "PKG-015 (UserRight discovery strategy - WinRM/secedit export)",
+      "PKG-016 (Password-change orchestration: AD change -> update -> verify)",
+      "PKG-017 (Resilience hardening: retry + kill-switch + remote circuit breaker)",
+      "PKG-018 (Authorization hardening: DB allowlist + job/hub authz)",
+      "PKG-019 (kismi) (Admin user/role API + RBAC seed/bootstrap)"
+    ],
+    "deferredByUser": [
+      "DTO'lari ayri katmana tasima (en son yapilacak)"
+    ],
+    "nextPlannedItems": [
+      "PKG-019 User/Role yonetimi: soft delete + audit raporlama (tamamlama)",
+      "PKG-014 UI (Phase 2) - daha sonra",
+      "PKG-020 Permission modeli (fine-grained authorization)",
+      "PKG-021 Observability v2 (OpenTelemetry + healthchecks + rate limiting)",
+      "PKG-022 SignalR scale-out (backplane) + deployment guide",
+      "PKG-023 Key rotation + secret/certificate rotation runbook",
+      "DTO ayirma katmani (kullanici talebiyle en son)"
+    ]
+  },
+  "pkg_014_ui_plan": {
+    "status": "planned",
+    "uiStack": "TBD (React veya Blazor)",
+    "pages": [
+      "Dashboard",
+      "Discovery",
+      "Password Change Form",
+      "Job Detail",
+      "Unauthorized"
+    ],
+    "listUx": {
+      "splitTabs": [
+        "Basarili",
+        "Basarisiz"
+      ],
+      "columns": [
+        "Server",
+        "Status",
+        "ResourceType",
+        "ErrorCode",
+        "ErrorMessage",
+        "UpdatedAt"
+      ],
+      "scaleTargetCount": 2000,
+      "recommendations": [
+        "paging",
+        "virtualization",
+        "server-side filtering"
+      ]
+    },
+    "realtime": {
+      "hubPath": "/hubs/jobs",
+      "events": [
+        "jobUpdated",
+        "targetUpdated"
+      ],
+      "resyncEndpoints": [
+        "GET /jobs/{id}",
+        "GET /jobs/{id}/targets"
+      ],
+      "notes": [
+        "SignalR best-effort; UI her zaman REST/DB ile yeniden senkron olabilmeli.",
+        "Token expire / reconnect / ordering (UpdatedAt) konulari UI tarafinda ele alinmali."
+      ]
+    },
+    "deployment": {
+      "uiApiSeparation": true,
+      "corsRequired": "API tarafinda Cors:AllowedOrigins ile UI origin allowlist edilmeli.",
+      "windowsIisNotes": [
+        "SignalR icin ayrica Windows'a bir kurulum yok; ASP.NET Core icinde gelir.",
+        "IIS host icin WebSocket Protocol feature acik olmali (detay: Document/Realtime_Updates_Readme.txt)."
+      ]
+    },
+    "securityExpectations": [
+      "OIDC Authorization Code + PKCE (SPA icin) tercih edilir.",
+      "Token saklama: mumkunse in-memory; localStorage risklerini degerlendir.",
+      "Role bazli UI guard sadece UX icindir; asil yetkilendirme API'da olmalidir."
+    ],
+    "candidateStacks": [
+      {
+        "name": "React (SPA)",
+        "packages": [
+          "@microsoft/signalr (SignalR JS client)",
+          "oidc-client-ts (generic OIDC)",
+          "react-router",
+          "tanstack/react-query",
+          "react-window veya react-virtualized"
+        ],
+        "notes": [
+          "Kurumsal OIDC saglayicisi Azure/Entra ise MSAL alternatif olabilir.",
+          "Token refresh (silent renew) stratejisi netlestirilmeli."
+        ]
+      },
+      {
+        "name": "Blazor WebAssembly",
+        "packages": [
+          "Microsoft.AspNetCore.Components.WebAssembly.Authentication",
+          "Microsoft.AspNetCore.SignalR.Client"
+        ],
+        "notes": [
+          "OIDC entegrasyonu built-in ile daha dogrudan olabilir.",
+          "Large table virtualization icin UI component secimi kritik."
+        ]
+      }
+    ],
+    "acceptance": [
+      "2000+ target listesi akici (paging + virtualization)",
+      "Viewer kritik/teknik detaylara erisemiyor (UI guard + API authz)",
+      "Job create -> detail otomatik acilma ve canli update calisiyor",
+      "Reconnect sonrasi REST ile resync yapilip tutarlilik korunuyor"
+    ]
+  },
+  "post_pkg_014_backlog": [
+    {
+      "id": "PKG-020",
+      "title": "Permission Model (Fine-Grained Authorization)",
+      "why": "Sadece Role degil; ince yetkiler (permission) ile endpoint/hub yetkilerini kurumsal sekilde yonetmek icin."
+    },
+    {
+      "id": "PKG-021",
+      "title": "Observability v2 (OpenTelemetry + HealthChecks + Rate Limiting)",
+      "why": "Dagitik sistemde (API+Worker+MQ) korelasyon, alerting ve kapasite planlama icin."
+    },
+    {
+      "id": "PKG-022",
+      "title": "SignalR Scale-Out (Backplane) + Deployment Guide",
+      "why": "API scale-out'ta live update tutarliligi icin sticky/backplane netlesmeli ve dokumante edilmeli."
+    },
+    {
+      "id": "PKG-023",
+      "title": "Key Rotation + Secret/Certificate Rotation Runbooks",
+      "why": "AES-GCM shared key ve TLS sertifikalari zamanla degisecek; rotation plan + runbook gerekli."
+    }
+  ],
+  "validation_status": {
+    "build": {
+      "command": "dotnet build .\\LDAP_Project.sln -v minimal",
+      "result": "OK (0 warning, 0 error)"
+    },
+    "vulnerabilityScan": {
+      "command": "dotnet list .\\LDAP_Project.sln package --vulnerable",
+      "result": "OK (no vulnerable packages reported)"
+    },
+    "knownCliIssue": {
+      "symptom": "dotnet list ... --vulnerable once failed with hostpolicy.dll/SDK runtime error (user report)",
+      "currentState": "Issue not reproducible on this machine now; dotnet --info and vulnerable scan succeed.",
+      "quickChecks": [
+        "dotnet --info",
+        "where dotnet",
+        "check installed runtimes under C:\\Program Files\\dotnet\\shared"
+      ]
+    }
+  },
+  "package_versions": {
+    "targetFramework": "net8.0",
+    "directNuGetPackages": {
+      "Infrastructure": {
+        "MassTransit": "8.4.1",
+        "MassTransit.RabbitMQ": "8.4.1",
+        "MassTransit.EntityFrameworkCore": "8.4.1",
+        "Microsoft.EntityFrameworkCore": "8.0.23",
+        "Microsoft.EntityFrameworkCore.SqlServer": "8.0.23",
+        "Microsoft.EntityFrameworkCore.Design": "8.0.23",
+        "Microsoft.EntityFrameworkCore.Tools": "8.0.23",
+        "Microsoft.Extensions.Http": "8.0.1",
+        "System.DirectoryServices.Protocols": "10.0.3"
+      },
+      "API": {
+        "MassTransit": "8.4.1",
+        "MassTransit.RabbitMQ": "8.4.1",
+        "MassTransit.EntityFrameworkCore": "8.4.1",
+        "Microsoft.AspNetCore.Authentication.JwtBearer": "8.0.23",
+        "Microsoft.OpenApi": "3.3.1",
+        "Serilog.AspNetCore": "10.0.0",
+        "Serilog.Sinks.File": "7.0.0",
+        "Serilog.Sinks.EventLog": "4.0.0",
+        "Swashbuckle.AspNetCore": "10.1.0"
+      },
+      "Worker": {
+        "MassTransit": "8.4.1",
+        "MassTransit.RabbitMQ": "8.4.1",
+        "MassTransit.EntityFrameworkCore": "8.4.1",
+        "Microsoft.Extensions.Hosting": "8.0.1",
+        "Serilog.Extensions.Hosting": "10.0.0",
+        "Serilog.Settings.Configuration": "10.0.0",
+        "Serilog.Sinks.File": "7.0.0",
+        "Serilog.Sinks.EventLog": "4.0.0"
+      }
+    },
+    "notes": [
+      "MassTransit 8.4.1, EF Core 8 ile uyumlu ve EF outbox/inbox hardening icin secildi.",
+      "EF Core 8.0.23 LTS tutuldu. EF 9'a gecilirse MassTransit/Extensions tarafinda major bump gerekebilir."
+    ]
+  },
+  "implemented_layers": {
+    "Domain": {
+      "purpose": "Saf domain: entity + enum. Infrastructure/EF bagimliligi yok.",
+      "entities": [
+        "AppUser",
+        "Role",
+        "AppUserRole",
+        "Job",
+        "JobTarget",
+        "JobResource",
+        "ServerInventory",
+        "ServerGroup",
+        "AuditLog",
+        "OutboxMessage (Domain - su an MassTransit outbox'tan farkli kavram)"
+      ],
+      "enums": [
+        "JobType (DISCOVERY, PASSWORD_CHANGE, VERIFY)",
+        "JobStatus (PENDING, IN_PROGRESS, SUCCESS, FAILED, CANCELLED)",
+        "TargetStatus (PENDING, IN_PROGRESS, SUCCESS, FAILED, SKIPPED)",
+        "ResourceType (Service, ScheduledTask, IIS*, COMPlus, UserRight)"
+      ],
+      "securityNotes": [
+        "Password/secret alanlari domain entity'lerinde yok (tasimiyoruz).",
+        "IsActive (AppUser) soft-disable icin kullaniliyor."
+      ],
+      "files": [
+        "Domain/Entities/*.cs",
+        "Domain/Enums/*.cs",
+        "Domain/Domain_readme.txt"
+      ]
+    },
+    "Application": {
+      "purpose": "Use-case'ler, abstraction'lar, message contract'lari. Infrastructure detaylarini bilmez.",
+      "useCases": [
+        "CreateDiscoveryJobUseCase",
+        "CreatePasswordChangeJobUseCase",
+        "GetJobStatusUseCase",
+        "GetJobTargetsUseCase"
+      ],
+      "messagingContracts": {
+        "commands": [
+          "DiscoverServerUsageCommand",
+          "UpdateServerResourcesCommand",
+          "VerifyServerCommand"
+        ],
+        "events": [
+          "ServerUsageResultEvent",
+          "ServerUpdateResultEvent",
+          "JobProgressEvent"
+        ],
+        "queueNames": "Application/Messaging/QueueNames.cs",
+        "encryptedPayloadModel": "Application/Messaging/EncryptedPayload.cs"
+      },
+      "abstractions": [
+        "Discovery: IDiscoveryEngine, IDiscoveryStrategy",
+        "Update: IUpdateEngine, IUpdateStrategy",
+        "Verify: IVerifyEngine",
+        "Security: IPayloadProtector (AES-GCM)",
+        "Messaging: ICommandPublisher",
+        "Auditing: IAuditTrailWriter",
+        "Tracking: IJobTrackingService"
+      ],
+      "knownGap": [
+        "Password-change use-case su an AD password change'i orkestre etmiyor (AdPasswordChangeService mevcut ama use-case'e bagli degil)."
+      ],
+      "files": [
+        "Application/UseCases/Jobs/*.cs",
+        "Application/Messaging/**/*.cs",
+        "Application/Abstractions/**/*.cs",
+        "Application/Application_readme.txt"
+      ]
+    },
+    "Infrastructure": {
+      "purpose": "EF Core, messaging (MassTransit), remote execution, discovery/update/verify, security, audit/tracking somut implementasyonlari.",
+      "persistence": {
+        "dbContext": "Infrastructure/Persistence/AdpmDbContext.cs",
+        "dbContextFactory": "Infrastructure/Persistence/AdpmDbContextFactory.cs",
+        "migrations": [
+          {
+            "id": "20260211161546_AddServerInventoryExternalId",
+            "file": "Infrastructure/Migrations/20260211161546_AddServerInventoryExternalId.cs",
+            "purpose": "ServerGroups ve ServerInventories icin ExternalId kolonlari + index'ler"
+          },
+          {
+            "id": "20260212213105_AddMassTransitOutbox",
+            "file": "Infrastructure/Migrations/20260212213105_AddMassTransitOutbox.cs",
+            "purpose": "MassTransit EF Outbox/Inbox tablolarini ekler: InboxState, OutboxMessage, OutboxState"
+          }
+        ],
+        "migrationHowTo": [
+          "Set connection string: ADPM_CONNECTIONSTRING",
+          "dotnet ef database update --project Infrastructure/Infrastructure.csproj --context Infrastructure.Persistence.AdpmDbContext"
+        ],
+        "notes": [
+          "Domain'da OutboxMessage entity var; MassTransit EF Outbox baska tablo seti kullaniyor. Ileride kavram karismazligi icin Domain OutboxMessage kaldirilabilir ya da baska amacla kullanilabilir."
+        ]
+      },
+      "messaging": {
+        "options": [
+          "Infrastructure/Messaging/RabbitMqOptions.cs",
+          "Infrastructure/Messaging/ConsumerOptions.cs",
+          "Infrastructure/Messaging/OutboxOptions.cs"
+        ],
+        "topologyAndDefaults": "Infrastructure/Messaging/MassTransitTopologyExtensions.cs",
+        "publisher": "Infrastructure/Messaging/MassTransitCommandPublisher.cs",
+        "hardening": [
+          "TLS (5671) + internal vhost/user",
+          "Quorum queues (dev RF=1, prod RF=3)",
+          "EF Outbox/Inbox (publish/consume durability)"
+        ]
+      },
+      "security": {
+        "payloadEncryption": "Infrastructure/Security/AesGcmPayloadProtector.cs",
+        "redaction": "Infrastructure/Security/SensitiveDataRedactor.cs",
+        "ldap": [
+          "Infrastructure/Directory/AdPasswordChangeService.cs",
+          "Infrastructure/Directory/LdapOptions.cs"
+        ],
+        "notes": [
+          "AES-GCM shared key config ile gelir (base64, 32 byte).",
+          "Sifreler DB/log icine yazilmaz; MQ payload sifreli tasinir."
+        ]
+      },
+      "remoteExecution": {
+        "strategy": "WinRM/PowerShell (non-interactive)",
+        "options": "Infrastructure/RemoteExecution/RemoteExecutionOptions.cs",
+        "executor": "Infrastructure/RemoteExecution/PowerShellWinRmCommandExecutor.cs",
+        "note": "RDP yok; remote islemler otomasyon icin WinRM/PowerShell."
+      },
+      "discovery": {
+        "engine": "Infrastructure/Discovery/DiscoveryEngine.cs",
+        "strategies": [
+          "ServiceDiscoveryStrategy",
+          "ScheduledTaskDiscoveryStrategy",
+          "IisAppPoolDiscoveryStrategy",
+          "IisSiteDiscoveryStrategy",
+          "IisWebAppDiscoveryStrategy",
+          "IisVirtualDirDiscoveryStrategy",
+          "ComPlusDiscoveryStrategy",
+          "UserRightDiscoveryStrategy (stub)"
+        ],
+        "baseStrategy": "Infrastructure/Discovery/Strategies/RemoteJsonDiscoveryStrategyBase.cs"
+      },
+      "update": {
+        "engine": "Infrastructure/Update/UpdateEngine.cs",
+        "strategies": [
+          "ServiceUpdateStrategy",
+          "ScheduledTaskUpdateStrategy",
+          "IisAppPoolUpdateStrategy",
+          "IisSiteUpdateStrategy",
+          "IisWebAppUpdateStrategy",
+          "IisVirtualDirUpdateStrategy",
+          "ComPlusUpdateStrategy"
+        ],
+        "baseStrategy": "Infrastructure/Update/Strategies/RemoteJsonUpdateStrategyBase.cs",
+        "notes": [
+          "Update stratejileri idempotent olacak sekilde tasarlandi: state check + no-op/skip yaklasimi.",
+          "ErrorCode mapping standardize edildi (ACCESS_DENIED, RESOURCE_NOT_FOUND, TIMEOUT, WINRM_CONNECT_FAILED, UNKNOWN)."
+        ]
+      },
+      "verify": {
+        "engine": "Infrastructure/Verify/VerifyEngine.cs",
+        "currentDefinition": "Verify, kaynaklarda hedef hesabina ait atama/config dogrulamasidir (password validity testi degil).",
+        "note": "Gercek 'sifre dogru mu' dogrulamasi (AD bind/logon) ileride ayri tasarim ister; destruktif testlerden kacinin."
+      },
+      "thApi": {
+        "client": "Infrastructure/ThApi/ThApiClient.cs",
+        "syncService": "Infrastructure/ThApi/InventorySyncService.cs",
+        "options": "Infrastructure/ThApi/ThApiOptions.cs",
+        "note": "Secret alanlari placeholder; loglarda secret basilmiyor (redaction + dikkatli logging)."
+      },
+      "identity": {
+        "roleResolver": "Infrastructure/Identity/RoleResolver.cs",
+        "behavior": "DB'de Subject + IsActive=true olan kullanicinin rollerini cozer.",
+        "knownGap": "DB'de user kaydi yoksa login'i hard-deny etmiyor; sadece rol eklemiyor. Kullanici istegi: DB allowlist enforced (must-exist)."
+      },
+      "files": [
+        "Infrastructure/DependencyInjection.cs",
+        "Infrastructure/Infrastructure_readme.txt",
+        "Infrastructure/Persistence/*.cs",
+        "Infrastructure/Migrations/*.cs",
+        "Infrastructure/Messaging/*.cs",
+        "Infrastructure/Security/*.cs",
+        "Infrastructure/Discovery/**/*.cs",
+        "Infrastructure/Update/**/*.cs",
+        "Infrastructure/Verify/*.cs",
+        "Infrastructure/ThApi/*.cs"
+      ]
+    },
+    "API": {
+      "purpose": "Auth (OIDC/JWT), RBAC, Controllers, SignalR hub, result-event consumers, observability (Serilog, correlation), security headers.",
+      "controllers": [
+        "API/Controllers/AuthController.cs (POST /auth/login)",
+        "API/Controllers/JobsController.cs (POST /jobs/discovery, POST /jobs/password-change, GET /jobs/{id}, GET /jobs/{id}/targets)",
+        "API/Controllers/AuditController.cs (GET /audit/logs)"
+      ],
+      "auth": {
+        "jwtBearer": "API/Program.cs",
+        "oidcOptions": "API/Auth/OidcOptions.cs",
+        "groupAllowlist": [
+          "API/Auth/AllowedGroupRequirement.cs",
+          "API/Auth/AllowedGroupHandler.cs"
+        ],
+        "rbacDbRoleMapping": "API/Auth/RbacClaimsTransformation.cs",
+        "note": "OIDC JWT + group allowlist + DB role mapping var. Custom token uretmeye gerek yok."
+      },
+      "signalr": {
+        "hub": "API/Hubs/JobsHub.cs",
+        "eventConsumers": [
+          "API/Consumers/ServerUsageResultEventConsumer.cs",
+          "API/Consumers/ServerUpdateResultEventConsumer.cs",
+          "API/Consumers/JobProgressEventConsumer.cs"
+        ],
+        "jwtQueryTokenSupport": "API/Program.cs (hub path icin access_token querystring okuma)",
+        "scaleOutNote": "Multi-instance API icin sticky session veya backplane gerekir."
+      },
+      "observabilityAndSecurity": [
+        "Serilog request logging enrich + correlation id middleware",
+        "Security headers middleware (temel hardening)",
+        "Swagger (Swashbuckle 10.1.0) dev-only"
+      ],
+      "files": [
+        "API/Program.cs",
+        "API/appsettings.json",
+        "API/appsettings.Development.json",
+        "API/API_README.txt",
+        "API/Auth/*.cs",
+        "API/Controllers/*.cs",
+        "API/Consumers/*.cs",
+        "API/Hubs/*.cs"
+      ]
+    },
+    "Worker": {
+      "purpose": "Command consumer'lar, remote discovery/update/verify, result event publish. Windows Service olarak calistirilabilir.",
+      "consumers": [
+        "Worker/Consumers/DiscoverServerUsageConsumer.cs",
+        "Worker/Consumers/UpdateServerResourcesConsumer.cs",
+        "Worker/Consumers/VerifyServerConsumer.cs"
+      ],
+      "jobs": [
+        "Worker/Jobs/InventorySyncJob.cs (TH API sync)"
+      ],
+      "rolesAndScaling": {
+        "config": "Worker/Configuration/WorkerRoleOptions.cs",
+        "behavior": "Ayni queue'yu birden fazla Worker instance consume edebilir; bir Worker duserse digerleri devam eder (RabbitMQ ack/requeue).",
+        "note": "WorkerRoles ile instance bazli gorev dagitimi yapilabilir (Discovery/Update/Verify/InventorySync ayri)."
+      },
+      "files": [
+        "Worker/Program.cs",
+        "Worker/appsettings.json",
+        "Worker/appsettings.Development.json",
+        "Worker/Worker_readme.txt",
+        "Worker/Consumers/*.cs",
+        "Worker/Jobs/*.cs",
+        "Worker/Configuration/*.cs"
+      ]
+    },
+    "Document": {
+      "purpose": "Proje genel dokumanlari (txt).",
+      "importantDocs": [
+        "Document/Project_General_Readme.txt",
+        "Document/Config_and_Secrets_Readme.txt",
+        "Document/Logging_Redaction_Readme.txt",
+        "Document/Messaging_Topology_Readme.txt",
+        "Document/API_Contract_Readme.txt",
+        "Document/Realtime_Updates_Readme.txt",
+        "Document/Reliability_and_Error_Handling_Readme.txt",
+        "Document/Audit_and_Logging_Readme.txt",
+        "Document/Security_Checklist_Readme.txt",
+        "Document/Th_Api_Inventory_Readme.txt",
+        "Document/Ad_Ldaps_Change_Readme.txt",
+        "Document/Discovery_Engine_Readme.txt",
+        "Document/Update_Engine_Readme.txt",
+        "Document/Verify_Flow_Readme.txt"
+      ]
+    }
+  },
+  "runtime_configuration": {
+    "common": {
+      "Messaging": {
+        "RabbitMq": {
+          "UseTls": true,
+          "UseQuorumQueues": true,
+          "QuorumReplicationFactor": {
+            "base": 3,
+            "development": 1
+          }
+        },
+        "Outbox": {
+          "Enabled": true,
+          "UseBusOutbox": true,
+          "QueryDelaySeconds": 3
+        },
+        "Consumer": {
+          "PrefetchCount": {
+            "base": 50,
+            "development": 20
+          },
+          "ConcurrencyLimit": {
+            "base": 50,
+            "development": 20
+          }
+        }
+      },
+      "PayloadEncryption": {
+        "KeyId": "<KEY_ID>",
+        "SharedKeyBase64": "<AES_GCM_SHARED_KEY_BASE64_32BYTE>"
+      }
+    },
+    "api": {
+      "Auth:Oidc": {
+        "Authority": "<OIDC_ISSUER_URL>",
+        "ClientId": "<CLIENT_ID>",
+        "Audience": "<AUDIENCE_OR_EMPTY>",
+        "GroupClaim": "<GROUP_CLAIM>",
+        "AllowedGroups": [
+          "<ALLOWED_GROUP_ID_OR_NAME>"
+        ],
+        "RequireHttpsMetadata": true
+      },
+      "Realtime:SignalR": {
+        "HubPath": "/hubs/jobs",
+        "MaximumReceiveMessageSizeKb": 64,
+        "EnableDetailedErrors": false
+      },
+      "Cors:AllowedOrigins": [
+        "<UI_ORIGIN>",
+        "http://localhost:3000 (Development)"
+      ],
+      "swagger": {
+        "enabled": "Development only"
+      }
+    },
+    "worker": {
+      "RemoteExecution": {
+        "Transport": "WinRM.PowerShell",
+        "ConnectTimeoutSeconds": 5,
+        "OverallTimeoutSeconds": 60
+      },
+      "Verification": {
+        "EnablePostUpdateVerification": true
+      },
+      "WorkerRoles": {
+        "EnableDiscovery": true,
+        "EnableUpdate": true,
+        "EnableVerify": true,
+        "EnableInventorySync": true
+      },
+      "ThApi": {
+        "Enabled": true,
+        "BaseUrl": "<TH_BASE_URL>",
+        "InventoryEndpoint": "<TH_INVENTORY_ENDPOINT>",
+        "ApiKey": "<TH_API_KEY>",
+        "ApiKeyHeaderName": "<TH_API_KEY_HEADER>",
+        "BearerToken": "<TH_API_BEARER>",
+        "TimeoutSeconds": 30,
+        "DiffRule": "createdDate or updatedDate",
+        "SyncIntervalSeconds": 300,
+        "InitialDelaySeconds": 10
+      },
+      "Ldap": {
+        "Port": 636,
+        "UseSsl": true,
+        "ValidateServerCertificate": {
+          "base": true,
+          "development": false
+        }
+      }
+    }
+  },
+  "known_gaps_and_risks": [
+    {
+      "id": "RISK-001",
+      "title": "SignalR operasyon riskleri (token expire, websocket kapali, scale-out)",
+      "currentMitigations": [
+        "Hub icin access_token querystring destegi",
+        "CORS placeholder",
+        "Docs: reconnect + REST resync, sticky/backplane notu"
+      ],
+      "remainingConsiderations": [
+        "UI token refresh/silent renew stratejisi",
+        "Rate limiting/backpressure (2000+ target event spam)",
+        "Message ordering/last-write-wins (UpdatedAt ile)",
+        "LB/proxy websocket idle timeout ayarlari"
+      ],
+      "relatedDocs": [
+        "Document/Realtime_Updates_Readme.txt",
+        "Document/Reliability_and_Error_Handling_Readme.txt"
+      ]
+    },
+    {
+      "id": "RISK-002",
+      "title": "RBAC bootstrap operasyonu (ilk admin) ve bootstrap flag'i",
+      "currentMitigations": [
+        "Admin user/role API eklendi",
+        "Auth:Bootstrap opsiyonel seed (ilk aktif admin yoksa SuperAdmin olusturur)"
+      ],
+      "remainingConsiderations": [
+        "Prod ortamda Auth:Bootstrap sadece kontrollu ve gecici acilmali",
+        "Multi-instance startup'ta seed islemi race edebilir (unique constraint ile best-effort)"
+      ],
+      "relatedDocs": [
+        "Document/User_Role_Management_Readme.txt",
+        "Document/Security_Checklist_Readme.txt"
+      ]
+    }
+  ],
+  "next_actions_step_by_step": [
+    {
+      "step": 1,
+      "pkg": "PKG-019",
+      "title": "PKG-019 User/Role yonetimi (soft delete) + audit raporlama (tamamlama)",
+      "goal": "Admin/SuperAdmin icin user lifecycle ve rol atama API'lari; physical delete yok; audit kaydi zorunlu.",
+      "touch": [
+        "Domain/Entities/AppUser.cs",
+        "API/Controllers/AdminUsersController.cs",
+        "API/Controllers/AdminRolesController.cs",
+        "API/Startup/RbacBootstrapHostedService.cs",
+        "Application/UseCases/Admin/*.cs",
+        "Infrastructure/Persistence/Repositories/IdentityRepository.cs",
+        "Document/User_Role_Management_Readme.txt"
+      ],
+      "notes": [
+        "Soft delete: IsActive=false + audit trail.",
+        "SuperAdmin rol atama sadece SuperAdmin.",
+        "Son aktif admin lockout onlemi."
+      ]
+    },
+    {
+      "step": 2,
+      "pkg": "PKG-014",
+      "title": "PKG-014 UI (Phase 2) implementasyonu",
+      "goal": "UI ekranlari + role bazli guard + 2000+ target icin paging/virtualization + SignalR client.",
+      "touch": [
+        "Document/agent_handoff.json (pkg_014_ui_plan)",
+        "Document/API_Contract_Readme.txt",
+        "Document/Realtime_Updates_Readme.txt"
+      ],
+      "notes": [
+        "UI stack secimi (React/Blazor) kararini verip paketi kurduktan sonra ilerlenmeli.",
+        "API tarafinda CORS ve auth ayarlari UI deploy modeline gore tekrar kontrol edilmeli."
+      ]
+    },
+    {
+      "step": 3,
+      "pkg": "PKG-020",
+      "title": "PKG-020 Permission modeli (fine-grained authorization)",
+      "goal": "Role disinda ince yetkiler icin Permission + RolePermission modeli ve policy-based authorization.",
+      "touch": [
+        "Domain/Entities (yeni Permission entity'leri)",
+        "Infrastructure/Persistence/AdpmDbContext.cs",
+        "API/Auth/*"
+      ]
+    },
+    {
+      "step": 4,
+      "pkg": "PKG-021",
+      "title": "PKG-021 Observability v2 (OTel + healthchecks + rate limiting)",
+      "goal": "Trace/metric + healthcheck endpointleri + rate limiting ile kurumsal operasyon gorunurlugu.",
+      "touch": [
+        "API/Program.cs",
+        "Worker/Program.cs",
+        "Document/Reliability_and_Error_Handling_Readme.txt"
+      ]
+    },
+    {
+      "step": 5,
+      "pkg": "PKG-022",
+      "title": "PKG-022 SignalR scale-out (backplane) + deployment guide",
+      "goal": "Multi-instance API senaryosunda live update tutarliligi (sticky/backplane) ve dokumantasyon.",
+      "touch": [
+        "API/Program.cs",
+        "Document/Realtime_Updates_Readme.txt"
+      ]
+    },
+    {
+      "step": 6,
+      "pkg": "PKG-023",
+      "title": "PKG-023 Key rotation + secret/certificate rotation runbooks",
+      "goal": "AES-GCM keyId rotation plan + (gerekirse) multi-key decrypt + ops runbook.",
+      "touch": [
+        "Infrastructure/Security/AesGcmPayloadProtector.cs",
+        "Document/Config_and_Secrets_Readme.txt"
+      ]
+    },
+    {
+      "step": 7,
+      "title": "DTO katmani ayrimi (en son)",
+      "goal": "API contract DTO'larini ve Application modellerini temiz ayirarak uzun vadeli bakimi kolaylastirmak.",
+      "notes": [
+        "Kullanici talebi: DTO ayrimi en sona birakildi (erken refactor karisiklik yaratmasin diye)."
+      ]
+    }
+  ],
+  "operational_notes": {
+    "dbWritesWhy": [
+      "DB kaynak-of-truth: UI ve raporlar icin tek gercek durum kaynagi",
+      "Audit: kim, ne zaman, hangi ticket ile hangi job'u baslatti; hedef bazli sonuc",
+      "Troubleshooting: correlationId ile API->MQ->Worker zincirini izleme",
+      "Eksisi: DB uzerinde ek yuk ve retention/index planlama ihtiyaci"
+    ],
+    "loggingStorageTradeoff": {
+      "dbAuditLogs": {
+        "pros": [
+          "Sorgulanabilir, raporlanabilir, role bazli erisim kontrolu kolay",
+          "UI raporlama icin ideal"
+        ],
+        "cons": [
+          "DB yuk/retention ihtiyaci",
+          "PII/hassas veri icin redaction disiplini sart"
+        ]
+      },
+      "fileLogsSerilog": {
+        "pros": [
+          "Kolay kurulum",
+          "Hizli troubleshooting"
+        ],
+        "cons": [
+          "Merkezi arama/korelasyon zor",
+          "Scale-out'ta dosyalar daginik"
+        ]
+      },
+      "elasticOrSiem": {
+        "pros": [
+          "Merkezi arama/alerting/dashboard",
+          "Uzun donem analiz"
+        ],
+        "cons": [
+          "Operasyon maliyeti yuksek",
+          "PII/secret redaction daha kritik"
+        ]
+      },
+      "recommendedPath": "Kurumsal urunde DB audit (zorunlu) + Serilog file/eventlog (lokal) + opsiyonel SIEM/Elastic (merkezi) en saglam kombinasyon."
+    }
+  },
+  "commands_for_future_ai": {
+    "build": [
+      "dotnet restore .\\LDAP_Project.sln",
+      "dotnet build .\\LDAP_Project.sln -v minimal"
+    ],
+    "runDev": [
+      "dotnet run --project .\\API\\API.csproj",
+      "dotnet run --project .\\Worker\\Worker.csproj"
+    ],
+    "migrations": [
+      "dotnet ef migrations list --project Infrastructure/Infrastructure.csproj --context Infrastructure.Persistence.AdpmDbContext",
+      "dotnet ef database update --project Infrastructure/Infrastructure.csproj --context Infrastructure.Persistence.AdpmDbContext"
+    ],
+    "vulnerabilityScan": [
+      "dotnet list .\\LDAP_Project.sln package --vulnerable"
+    ]
+  }
+}

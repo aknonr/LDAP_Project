@@ -1,6 +1,8 @@
 using API.Contracts.Jobs;
+using API.Auth;
 using API.Logging;
 using Application.Abstractions.Auditing;
+using Application.Abstractions.Repositories;
 using Application.UseCases.Jobs;
 using Application.UseCases.Jobs.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -21,6 +23,8 @@ public sealed class JobsController : ControllerBase
     private readonly CreatePasswordChangeJobUseCase _createPasswordChangeJobUseCase;
     private readonly GetJobStatusUseCase _getJobStatusUseCase;
     private readonly GetJobTargetsUseCase _getJobTargetsUseCase;
+    private readonly IJobRepository _jobRepository;
+    private readonly IAuthorizationService _authorizationService;
     private readonly IAuditTrailWriter _auditTrailWriter;
     private readonly ILogger<JobsController> _logger;
 
@@ -29,6 +33,8 @@ public sealed class JobsController : ControllerBase
         CreatePasswordChangeJobUseCase createPasswordChangeJobUseCase,
         GetJobStatusUseCase getJobStatusUseCase,
         GetJobTargetsUseCase getJobTargetsUseCase,
+        IJobRepository jobRepository,
+        IAuthorizationService authorizationService,
         IAuditTrailWriter auditTrailWriter,
         ILogger<JobsController> logger)
     {
@@ -36,6 +42,8 @@ public sealed class JobsController : ControllerBase
         _createPasswordChangeJobUseCase = createPasswordChangeJobUseCase;
         _getJobStatusUseCase = getJobStatusUseCase;
         _getJobTargetsUseCase = getJobTargetsUseCase;
+        _jobRepository = jobRepository;
+        _authorizationService = authorizationService;
         _auditTrailWriter = auditTrailWriter;
         _logger = logger;
     }
@@ -54,11 +62,13 @@ public sealed class JobsController : ControllerBase
     {
         var correlationId = ResolveCorrelationId();
         var requestedBy = ResolveRequestedBy();
+        var requestedBySubject = ResolveRequestedBySubject();
 
         var input = new CreateDiscoveryJobInput
         {
             ServerGroupExternalId = request.ServerGroupId,
             RequestedBy = requestedBy,
+            RequestedBySubject = requestedBySubject,
             TicketRef = request.TicketRef,
             CorrelationId = correlationId
         };
@@ -110,6 +120,7 @@ public sealed class JobsController : ControllerBase
     {
         var correlationId = ResolveCorrelationId();
         var requestedBy = ResolveRequestedBy();
+        var requestedBySubject = ResolveRequestedBySubject();
 
         if (request.OldPassword == request.NewPassword)
         {
@@ -128,6 +139,7 @@ public sealed class JobsController : ControllerBase
         {
             ServerGroupExternalId = request.ServerGroupId,
             RequestedBy = requestedBy,
+            RequestedBySubject = requestedBySubject,
             TargetAccount = request.TargetAccount,
             OldPassword = request.OldPassword,
             NewPassword = request.NewPassword,
@@ -177,6 +189,18 @@ public sealed class JobsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<JobStatusResponse>> GetJobStatus(Guid id, CancellationToken cancellationToken)
     {
+        var accessInfo = await _jobRepository.GetAccessInfoAsync(id, cancellationToken);
+        if (accessInfo is null)
+        {
+            return NotFound("Job bulunamadi.");
+        }
+
+        var authz = await _authorizationService.AuthorizeAsync(User, accessInfo, AuthorizationPolicies.JobAccess);
+        if (!authz.Succeeded)
+        {
+            return Forbid();
+        }
+
         var result = await _getJobStatusUseCase.ExecuteAsync(new GetJobStatusInput { JobId = id }, cancellationToken);
         if (!result.IsSuccess || result.Value is null)
         {
@@ -210,6 +234,18 @@ public sealed class JobsController : ControllerBase
         [FromQuery] int take = 200,
         CancellationToken cancellationToken = default)
     {
+        var accessInfo = await _jobRepository.GetAccessInfoAsync(id, cancellationToken);
+        if (accessInfo is null)
+        {
+            return NotFound("Job bulunamadi.");
+        }
+
+        var authz = await _authorizationService.AuthorizeAsync(User, accessInfo, AuthorizationPolicies.JobAccess);
+        if (!authz.Succeeded)
+        {
+            return Forbid();
+        }
+
         var result = await _getJobTargetsUseCase.ExecuteAsync(
             new GetJobTargetsInput
             {
@@ -280,6 +316,13 @@ public sealed class JobsController : ControllerBase
                ?? User.FindFirstValue(ClaimTypes.Name)
                ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
                ?? "unknown";
+    }
+
+    private string ResolveRequestedBySubject()
+    {
+        return User.FindFirstValue("sub")
+               ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+               ?? string.Empty;
     }
 
     private string? ResolveCorrelationId()
