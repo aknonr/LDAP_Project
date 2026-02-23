@@ -11,7 +11,7 @@ using Domain.Enums;
 namespace Application.UseCases.Jobs;
 
 /// <summary>
-/// Password change job olusturma ve update komutlarini kuyruga gonderme akisidir.
+/// Password change job olusturma ve orkestrasyon komutunu kuyruga gonderme akisidir.
 /// </summary>
 public sealed class CreatePasswordChangeJobUseCase
 {
@@ -33,7 +33,7 @@ public sealed class CreatePasswordChangeJobUseCase
     }
 
     /// <summary>
-    /// Password change job olusturur, hedefleri kaydeder ve update komutlarini publish eder.
+    /// Password change job olusturur, hedefleri kaydeder ve orkestrasyon komutunu publish eder.
     /// </summary>
     public async Task<UseCaseResult<JobCreatedOutput>> ExecuteAsync(
         CreatePasswordChangeJobInput input,
@@ -47,6 +47,11 @@ public sealed class CreatePasswordChangeJobUseCase
         if (string.IsNullOrWhiteSpace(input.RequestedBy))
         {
             return UseCaseResult<JobCreatedOutput>.Failure("REQUESTED_BY_REQUIRED", "RequestedBy zorunludur.");
+        }
+
+        if (string.IsNullOrWhiteSpace(input.RequestedBySubject))
+        {
+            return UseCaseResult<JobCreatedOutput>.Failure("REQUESTED_BY_REQUIRED", "RequestedBySubject zorunludur.");
         }
 
         if (string.IsNullOrWhiteSpace(input.TargetAccount))
@@ -80,6 +85,7 @@ public sealed class CreatePasswordChangeJobUseCase
             Type = JobType.PasswordChange,
             Status = JobStatus.Pending,
             RequestedBy = input.RequestedBy,
+            RequestedBySubject = input.RequestedBySubject,
             ServerGroupId = serverGroup.Id,
             CorrelationId = input.CorrelationId
         };
@@ -99,33 +105,33 @@ public sealed class CreatePasswordChangeJobUseCase
         await _jobRepository.AddAsync(job, cancellationToken);
         await _jobRepository.SaveChangesAsync(cancellationToken);
 
-        EncryptedPayload encryptedPayload;
+        EncryptedPayload encryptedNewPassword;
+        EncryptedPayload encryptedOldPassword;
         try
         {
-            // Yeni sifreyi MQ payload'i icin AES-GCM ile sifreler (plain sifre log/DB/MQ'ya yazilmaz).
-            encryptedPayload = await _payloadProtector.EncryptAsync(input.NewPassword, cancellationToken);
+            // Password'ler MQ payload'i icin AES-GCM ile sifrelenir (plain sifre log/DB/MQ'ya yazilmaz).
+            encryptedNewPassword = await _payloadProtector.EncryptAsync(input.NewPassword, cancellationToken);
+            encryptedOldPassword = await _payloadProtector.EncryptAsync(input.OldPassword, cancellationToken);
         }
         catch (InvalidOperationException ex)
         {
             return UseCaseResult<JobCreatedOutput>.Failure("PAYLOAD_PROTECTION_FAILED", ex.Message);
         }
 
-        foreach (var target in job.Targets)
+        // Job-level orkestrasyon komutunu MQ'ya gonderir:
+        // AD password change (old+new) -> update -> (opsiyonel) verify
+        await _commandPublisher.PublishStartPasswordChangeJobAsync(new StartPasswordChangeJobCommand
         {
-            // Update komutunu MQ'ya gonderir.
-            var command = new UpdateServerResourcesCommand
-            {
-                JobId = job.Id,
-                TargetId = target.Id,
-                ServerName = target.ServerName,
-                IpAddress = target.IpAddress,
-                TargetAccount = input.TargetAccount,
-                EncryptedPassword = encryptedPayload,
-                CorrelationId = input.CorrelationId
-            };
+            JobId = job.Id,
+            TargetAccount = input.TargetAccount,
+            EncryptedOldPassword = encryptedOldPassword,
+            EncryptedNewPassword = encryptedNewPassword,
+            CorrelationId = input.CorrelationId
+        }, cancellationToken);
 
-            await _commandPublisher.PublishUpdateAsync(command, cancellationToken);
-        }
+        // Bus outbox aciksa, publish edilen mesajlar EF Outbox tablolarina yazilabilir.
+        // Bu nedenle publish sonrasi SaveChanges ile outbox kayitlarini da kalici hale getiririz.
+        await _jobRepository.SaveChangesAsync(cancellationToken);
 
         return UseCaseResult<JobCreatedOutput>.Success(new JobCreatedOutput
         {

@@ -13,6 +13,7 @@
 - Repository:
   - `JobRepository`
   - `ServerGroupRepository`
+  - `IdentityRepository` (AppUser/Role yonetimi)
 - Messaging:
   - `MassTransitCommandPublisher`
   - `RabbitMqOptions`, `ConsumerOptions`, `OutboxOptions`
@@ -45,6 +46,4 @@
 - `IAuditTrailWriter/Reader` implementasyonu API controller'larinda kullanilir.
 
 ## Sonraki Plan
-- UserRight discovery stratejisinin gercek implementasyonu
-- Password-change job orkestrasyonu: AD (LDAPS) change + update + verify akisini tek job altinda tamamlamak
-- Mesajlasma hardening: DLQ policy + circuit-breaker/kill-switch config opsiyonlari
+- PKG-019: User/Role yonetimi: soft delete + audit raporlama (tamamlama)

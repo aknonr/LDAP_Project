@@ -7,6 +7,7 @@ public sealed record CreatePasswordChangeJobInput
 {
     public string ServerGroupExternalId { get; init; } = string.Empty;
     public string RequestedBy { get; init; } = string.Empty;
+    public string RequestedBySubject { get; init; } = string.Empty;
     public string TargetAccount { get; init; } = string.Empty;
     public string OldPassword { get; init; } = string.Empty;
     public string NewPassword { get; init; } = string.Empty;

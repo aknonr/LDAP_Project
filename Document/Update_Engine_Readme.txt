@@ -20,6 +20,7 @@
 ## Akis
 1. Worker update command alir.
 2. Payload decrypt edilir (plain sifre sadece memory).
+2.1. Target icin `JobResource` yoksa Worker, discovery stratejileri ile (WinRM/PowerShell) kaynaklari bulur ve **hedef account** ile eslesenleri `JobResource` olarak olusturur.
 3. UpdateEngine kaynaklari gunceller.
 4. Verify zinciri aciksa (`Verification:EnablePostUpdateVerification=true`) verify komutu kuyruga gonderilir ve hedef `InProgress` tutulur.
 5. `ServerUpdateResultEvent` publish edilir (UI canli guncelleme icin).
@@ -27,3 +28,4 @@
 ## Not
 - Engine idempotent davranir: `Success` durumundaki resource tekrar islenmez.
 - Script parametreleri base64 ile enjekte edilir; plain sifre log/DB/MQ'ya yazilmaz.
+- Target account kullanimini bulamazsa update `no-op` kabul edilir ve hedef `Success` ile tamamlanir.

@@ -2,8 +2,10 @@ using API.Auth;
 using API.Consumers;
 using API.Hubs;
 using API.Logging;
+using API.Startup;
 using Application.Messaging;
 using Application.Messaging.Events;
+using Application.UseCases.Admin;
 using Application.UseCases.Jobs;
 using Infrastructure;
 using Infrastructure.Messaging;
@@ -88,6 +90,7 @@ builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("Me
 builder.Services.Configure<ConsumerOptions>(builder.Configuration.GetSection("Messaging:Consumer"));
 builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Messaging:Outbox"));
 builder.Services.Configure<OidcOptions>(builder.Configuration.GetSection("Auth:Oidc"));
+builder.Services.Configure<BootstrapOptions>(builder.Configuration.GetSection("Auth:Bootstrap"));
 
 builder.Services.AddSignalR(options =>
 {
@@ -135,13 +138,27 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization(options =>
 {
-    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+    options.AddPolicy(AuthorizationPolicies.JobAccess, policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.Requirements.Add(new JobAccessRequirement());
+    });
+
+    var basePolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .AddRequirements(new AllowedGroupRequirement())
+        .AddRequirements(new DbUserAllowlistRequirement())
         .Build();
+
+    // DefaultPolicy: [Authorize] (Roles dahil) olan tum endpoint/hub'larda calisir.
+    options.DefaultPolicy = basePolicy;
+    // FallbackPolicy: [Authorize] olmayan endpoint'leri de fail-closed yapar.
+    options.FallbackPolicy = basePolicy;
 });
 
 builder.Services.AddSingleton<IAuthorizationHandler, AllowedGroupHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, DbUserAllowlistHandler>();
+builder.Services.AddSingleton<IAuthorizationHandler, JobAccessHandler>();
 builder.Services.AddScoped<IClaimsTransformation, RbacClaimsTransformation>();
 
 if (corsAllowedOrigins.Length > 0)
@@ -164,7 +181,15 @@ builder.Services.AddScoped<CreatePasswordChangeJobUseCase>();
 builder.Services.AddScoped<GetJobStatusUseCase>();
 builder.Services.AddScoped<GetJobTargetsUseCase>();
 
+// Admin use-case'leri (RBAC allowlist/rol yonetimi).
+builder.Services.AddScoped<ListUsersUseCase>();
+builder.Services.AddScoped<UpsertUserUseCase>();
+builder.Services.AddScoped<SetUserActiveUseCase>();
+builder.Services.AddScoped<SetUserRolesUseCase>();
+builder.Services.AddScoped<ListRolesUseCase>();
+
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddHostedService<RbacBootstrapHostedService>();
 
 builder.Services.AddMassTransit(configurator =>
 {
@@ -213,6 +238,8 @@ builder.Services.AddMassTransit(configurator =>
 });
 
 // Command mesajlarini dogrudan queue'lara gondermek icin URI map'leri.
+EndpointConvention.Map<Application.Messaging.Commands.StartPasswordChangeJobCommand>(
+    new Uri($"queue:{QueueNames.AdPasswordChangeCommands}"));
 EndpointConvention.Map<Application.Messaging.Commands.DiscoverServerUsageCommand>(
     new Uri($"queue:{QueueNames.ServerDiscoveryCommands}"));
 EndpointConvention.Map<Application.Messaging.Commands.UpdateServerResourcesCommand>(

@@ -52,6 +52,7 @@ builder.Services.AddMassTransit(configurator =>
     if (workerRoles.EnableUpdate)
     {
         configurator.AddConsumer<UpdateServerResourcesConsumer>();
+        configurator.AddConsumer<StartPasswordChangeJobConsumer>();
     }
 
     if (workerRoles.EnableVerify)
@@ -82,6 +83,13 @@ builder.Services.AddMassTransit(configurator =>
 
         if (workerRoles.EnableUpdate)
         {
+            cfg.ReceiveEndpoint(QueueNames.AdPasswordChangeCommands, endpoint =>
+            {
+                endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+                endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
+                endpoint.ConfigureConsumer<StartPasswordChangeJobConsumer>(context);
+            });
+
             cfg.ReceiveEndpoint(QueueNames.ServerUpdateCommands, endpoint =>
             {
                 endpoint.ConfigureEndpointDefaults(consumerOptions, options);

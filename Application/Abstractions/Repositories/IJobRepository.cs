@@ -19,6 +19,11 @@ public interface IJobRepository
     Task<Job?> GetByIdAsync(Guid jobId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Job erisim kontrolu icin gerekli minimum bilgileri getirir.
+    /// </summary>
+    Task<JobAccessInfo?> GetAccessInfoAsync(Guid jobId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Job hedef listesini getirir (opsiyonel sayfalama).
     /// </summary>
     Task<IReadOnlyList<JobTarget>> GetTargetsAsync(Guid jobId, int skip, int take, CancellationToken cancellationToken);

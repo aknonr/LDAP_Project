@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.DirectoryServices.Protocols;
 using System.Net;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace Infrastructure.Directory;
@@ -50,6 +49,12 @@ public sealed class AdPasswordChangeService : IAdPasswordChangeService
             using var connection = CreateConnection(options, request.UserDnOrUpn, request.OldPassword);
             connection.Bind();
 
+            var distinguishedName = ResolveDistinguishedName(connection, request.UserDnOrUpn);
+            if (string.IsNullOrWhiteSpace(distinguishedName))
+            {
+                return Task.FromResult(OperationResult.Failure("USER_NOT_FOUND", "Kullanici bulunamadi."));
+            }
+
             var deleteOldPassword = new DirectoryAttributeModification
             {
                 Name = AttributeName,
@@ -65,7 +70,7 @@ public sealed class AdPasswordChangeService : IAdPasswordChangeService
             addNewPassword.Add(EncodePassword(request.NewPassword));
 
             var modifyRequest = new ModifyRequest(
-                request.UserDnOrUpn,
+                distinguishedName,
                 deleteOldPassword,
                 addNewPassword);
 
@@ -83,6 +88,15 @@ public sealed class AdPasswordChangeService : IAdPasswordChangeService
         }
         catch (LdapException ex)
         {
+            // Idempotency: AD change basarili olup consumer retry ile tekrar calistiginda,
+            // old password INVALID_CREDENTIALS olabilir. Bu durumda new password ile bind edebiliyorsak
+            // "zaten degismis" kabul edip success doneriz.
+            if (IsInvalidCredentials(ex) && TryBind(options, request.UserDnOrUpn, request.NewPassword))
+            {
+                _logger.LogInformation("LDAPS password change idempotent kabul edildi (new password zaten gecerli). User={User}", request.UserDnOrUpn);
+                return Task.FromResult(OperationResult.Success());
+            }
+
             return Task.FromResult(MapLdapException(ex));
         }
         catch (TimeoutException ex)
@@ -115,6 +129,119 @@ public sealed class AdPasswordChangeService : IAdPasswordChangeService
         }
 
         return connection;
+    }
+
+    private static bool TryBind(LdapOptions options, string userDnOrUpn, string password)
+    {
+        try
+        {
+            using var connection = CreateConnection(options, userDnOrUpn, password);
+            connection.Bind();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsInvalidCredentials(LdapException ex)
+    {
+        return ex.ErrorCode == 49
+               || ex.Message.Contains("invalid credentials", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ResolveDistinguishedName(LdapConnection connection, string userIdentifier)
+    {
+        if (LooksLikeDistinguishedName(userIdentifier))
+        {
+            return userIdentifier;
+        }
+
+        var baseDn = ResolveDefaultNamingContext(connection);
+        if (string.IsNullOrWhiteSpace(baseDn))
+        {
+            return null;
+        }
+
+        var filter = BuildUserSearchFilter(userIdentifier);
+        var searchRequest = new SearchRequest(
+            baseDn,
+            filter,
+            SearchScope.Subtree,
+            "distinguishedName")
+        {
+            SizeLimit = 2
+        };
+
+        var response = (SearchResponse)connection.SendRequest(searchRequest);
+        if (response.Entries is null || response.Entries.Count == 0)
+        {
+            return null;
+        }
+
+        return response.Entries[0].DistinguishedName;
+    }
+
+    private static string? ResolveDefaultNamingContext(LdapConnection connection)
+    {
+        try
+        {
+            var rootDseRequest = new SearchRequest(
+                null,
+                "(objectClass=*)",
+                SearchScope.Base,
+                "defaultNamingContext");
+
+            var response = (SearchResponse)connection.SendRequest(rootDseRequest);
+            if (response.Entries is null || response.Entries.Count == 0)
+            {
+                return null;
+            }
+
+            var attr = response.Entries[0].Attributes["defaultNamingContext"];
+            if (attr is null || attr.Count == 0)
+            {
+                return null;
+            }
+
+            return attr[0]?.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool LooksLikeDistinguishedName(string value)
+    {
+        return value.Contains("DC=", StringComparison.OrdinalIgnoreCase)
+               && value.Contains('=');
+    }
+
+    private static string BuildUserSearchFilter(string userIdentifier)
+    {
+        var value = userIdentifier;
+        if (value.Contains('\\'))
+        {
+            value = value[(value.LastIndexOf('\\') + 1)..];
+        }
+
+        var escaped = EscapeLdapFilterValue(value);
+        return value.Contains('@')
+            ? $"(userPrincipalName={escaped})"
+            : $"(sAMAccountName={escaped})";
+    }
+
+    private static string EscapeLdapFilterValue(string value)
+    {
+        // RFC 4515
+        return value
+            .Replace(@"\", @"\5c", StringComparison.Ordinal)
+            .Replace("*", @"\2a", StringComparison.Ordinal)
+            .Replace("(", @"\28", StringComparison.Ordinal)
+            .Replace(")", @"\29", StringComparison.Ordinal)
+            .Replace("\0", @"\00", StringComparison.Ordinal);
     }
 
     private static AuthType ResolveAuthType(string? authType)

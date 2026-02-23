@@ -7,22 +7,28 @@
 - `PKG-011 Adim 3`: Controller + DI wiring + MQ publish
 - `PKG-012`: SignalR hub ve result event consumer koprusu
 - `PKG-013`: Correlation middleware, request logging enrich, security headers, audit endpoint
+- `PKG-018`: Authorization hardening: DB allowlist + job/hub authz
+- `PKG-019 (kismi)`: Admin user/role API (soft delete: IsActive) + audit
 
 ## Uygulanan Bilesenler
 - `Controllers/AuthController.cs`
 - `Controllers/JobsController.cs`
 - `Controllers/AuditController.cs`
+- `Controllers/AdminUsersController.cs`
+- `Controllers/AdminRolesController.cs`
 - `Hubs/JobsHub.cs`
 - `Consumers/ServerUsageResultEventConsumer.cs`
 - `Consumers/ServerUpdateResultEventConsumer.cs`
 - `Consumers/JobProgressEventConsumer.cs`
 - `Logging/CorrelationIdMiddleware.cs`
 - `Logging/SecurityHeadersMiddleware.cs`
+- `Startup/RbacBootstrapHostedService.cs` (role seed + opsiyonel bootstrap admin)
 
 ## API Guvenlik Standartlari
-- Tum endpointler fallback policy ile authenticated + group allowlist zorunlu.
+- Tum endpointler default/fallback policy ile authenticated + group allowlist + DB allowlist zorunlu (fail-closed).
 - Job baslatma endpointleri sadece `Admin,Operator`.
 - Audit rapor endpointi `Admin,SuperAdmin`.
+- Admin user/role endpointleri `Admin,SuperAdmin`.
 - `X-Correlation-Id` header normalize edilip log ve response'a yazilir.
 - Response security headers zorunlu eklenir (`nosniff`, `deny frame`, CSP).
 - Password alanlari loglanmaz; audit summary sanitize edilir.
@@ -30,8 +36,10 @@
 - SignalR JWT destegi: browser client icin hub path'te `access_token` querystring okunur.
 
 ## Akis Notu
-- `POST /jobs/password-change` su an AD'de sifre degistirme (LDAPS change) adimini orkestre etmez.
-- Mevcut davranis: update + (opsiyonel) verify akisini baslatir; AD change + update + verify orkestrasyonu sonraki adimdir.
+- `POST /jobs/password-change` job-level orkestrasyon komutunu publish eder.
+- Worker tarafinda akiş: AD (LDAPS) change (old+new) -> update -> (opsiyonel) verify.
+
+- RBAC notu: Kullanici DB'de yoksa 403. Ilk kurulumda `Auth:Bootstrap` veya manuel SQL ile en az 1 admin olusturulmalidir.
 
 ## SignalR Kurulum Notu (Windows)
 - Ayrica "SignalR server" kurulumu yapman gerekmez; ASP.NET Core icinde gelir.

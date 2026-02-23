@@ -31,7 +31,22 @@ public static class MassTransitTopologyExtensions
     {
         endpoint.PrefetchCount = consumerOptions.PrefetchCount;
         endpoint.UseConcurrencyLimit(consumerOptions.ConcurrencyLimit);
-        endpoint.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromSeconds(5)));
+        endpoint.UseMessageRetry(retry =>
+            retry.Interval(
+                Math.Max(0, consumerOptions.RetryAttempts),
+                TimeSpan.FromSeconds(Math.Max(1, consumerOptions.RetryIntervalSeconds))));
+
+        if (consumerOptions.KillSwitch.Enabled)
+        {
+            endpoint.UseKillSwitch(options =>
+            {
+                options.TrackingPeriod = TimeSpan.FromSeconds(Math.Max(10, consumerOptions.KillSwitch.TrackingPeriodSeconds));
+                options.TripThreshold = Math.Clamp(consumerOptions.KillSwitch.TripThreshold, 1, 100);
+                options.ActivationThreshold = Math.Max(1, consumerOptions.KillSwitch.ActivationThreshold);
+                options.RestartTimeout = TimeSpan.FromSeconds(Math.Max(10, consumerOptions.KillSwitch.RestartTimeoutSeconds));
+            });
+        }
+
         endpoint.Durable = true;
         endpoint.AutoDelete = false;
 

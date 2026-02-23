@@ -70,6 +70,7 @@ public sealed class AdpmDbContext : DbContext
                 .HasMaxLength(50)
                 .IsRequired();
             entity.Property(x => x.RequestedBy).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.RequestedBySubject).HasMaxLength(200).IsRequired();
             entity.Property(x => x.CorrelationId).HasMaxLength(100);
             entity.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
             entity.HasOne(x => x.ServerGroup)

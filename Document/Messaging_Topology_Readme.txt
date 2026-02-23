@@ -4,6 +4,7 @@ Bu dokuman PKG-009/010 ve PKG-012 kapsaminda gunceldir.
 
 ## Queue ve Exchange
 - Command queue:
+  - `ad.passwordchange.commands`
   - `server.discovery.commands`
   - `server.update.commands`
   - `server.verify.commands`
@@ -12,6 +13,7 @@ Bu dokuman PKG-009/010 ve PKG-012 kapsaminda gunceldir.
 
 ## Message Sozlesmeleri
 - Command:
+  - `StartPasswordChangeJobCommand`
   - `DiscoverServerUsageCommand`
   - `UpdateServerResourcesCommand`
   - `VerifyServerCommand`
@@ -26,6 +28,12 @@ Bu dokuman PKG-009/010 ve PKG-012 kapsaminda gunceldir.
 3. Worker result event publish eder (`server.result.events`).
 4. API result event consume eder.
 5. API DB status update + SignalR broadcast yapar.
+
+### Password-Change Orkestrasyonu (PKG-016)
+1. API `StartPasswordChangeJobCommand` publish eder (`ad.passwordchange.commands`).
+2. Worker AD (LDAPS) change yapar (old+new).
+3. AD basariliysa Worker `UpdateServerResourcesCommand` mesajlarini hedefler icin dispatch eder.
+4. Update basariliysa (opsiyonel) Worker `VerifyServerCommand` zincirler.
 
 ## Runtime Ayarlari
 - RabbitMQ:

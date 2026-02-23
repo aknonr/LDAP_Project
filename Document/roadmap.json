@@ -2,7 +2,7 @@
   "meta": {
     "documentType": "agent_prompt_packages",
     "projectName": "EnterpriseADPasswordManager",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "language": "tr-TR",
     "executionMode": "sequential_with_dependencies",
     "targetStack": {
@@ -455,7 +455,7 @@
     {
       "id": "PKG-014",
       "title": "UI (Phase 2)",
-      "dependsOn": ["PKG-011", "PKG-012"],
+      "dependsOn": ["PKG-011", "PKG-012", "PKG-015", "PKG-016", "PKG-018"],
       "inputs": {
         "uiStack": "TBD (React or Blazor)",
         "pages": ["Dashboard", "Discovery", "Password Change Form", "Job Detail", "Unauthorized"],
@@ -476,6 +476,239 @@
         }
       ],
       "verificationSteps": ["Job create -> detail auto open", "Viewer teknik detay gorememeli"]
+    },
+    {
+      "id": "PKG-015",
+      "title": "UserRight Discovery Strategy (Real Implementation)",
+      "dependsOn": ["PKG-007"],
+      "inputs": {
+        "discoveryTransport": "WinRM/PowerShell",
+        "resourceType": "UserRight",
+        "outputShape": {
+          "resourceId": "string (stable key)",
+          "displayName": "string",
+          "details": {
+            "rightName": "string",
+            "account": "string",
+            "scope": "string"
+          }
+        },
+        "errorCodes": ["WINRM_CONNECT_FAILED", "ACCESS_DENIED", "TIMEOUT", "UNKNOWN"]
+      },
+      "prompt": "UserRight discovery stratejisini stub'dan cikarip gercek implementasyon yap. WinRM/PowerShell ile user right atamalarini topla, JSON output standardina uydur ve JobResource olarak kaydet. docs/discovery-engine.md altina UserRight notlarini ekle.",
+      "expectedOutputs": [
+        {
+          "type": "code",
+          "pathHints": ["src/Infrastructure/Discovery/Strategies/UserRightDiscoveryStrategy.cs"],
+          "acceptance": "UserRight discovery sonucu uretilir ve hata kodlari standard doner."
+        },
+        {
+          "type": "markdown",
+          "pathHints": ["docs/discovery-engine.md"],
+          "acceptance": "UserRight discovery yaklasimi ve limitler dokumante."
+        }
+      ],
+      "verificationSteps": ["UserRight discovery dry-run", "AccessDenied/timeout senaryolari"]
+    },
+    {
+      "id": "PKG-016",
+      "title": "Password-Change Job Orchestration (AD Change + Update + Verify)",
+      "dependsOn": ["PKG-006", "PKG-008", "PKG-010", "PKG-011"],
+      "inputs": {
+        "stateMachine": ["AD_CHANGE", "UPDATE_RESOURCES", "VERIFY"],
+        "constraints": [
+          "DB/log/MQ plain sifre yok",
+          "Rollback zor; partial failure raporlanmali",
+          "AD replication gecikmesi olabilir (retry window)"
+        ],
+        "errorCodes": [
+          "INVALID_CREDENTIALS", "POLICY_VIOLATION", "ACCESS_DENIED",
+          "USER_NOT_FOUND", "LDAPS_CONNECT_FAILED", "TIMEOUT", "UNKNOWN"
+        ]
+      },
+      "prompt": "POST /jobs/password-change akisini tek job state machine haline getir: AD (LDAPS) change (old+new) -> update -> verify. Sifreler sadece memoryde kalacak; MQ payload AES-GCM sifreli. Partial failure ve retry davranisini dokumante et.",
+      "expectedOutputs": [
+        {
+          "type": "code",
+          "pathHints": ["src/Application/UseCases/Jobs/CreatePasswordChangeJobUseCase.cs", "src/Worker/Consumers/UpdateServerResourcesConsumer.cs", "src/Worker/Consumers/VerifyServerConsumer.cs"],
+          "acceptance": "AD change basarisizsa update/verify tetiklenmez; status/event akisi stabil."
+        },
+        {
+          "type": "markdown",
+          "pathHints": ["docs/ad-ldaps-change.md", "docs/update-engine.md", "docs/verify-flow.md"],
+          "acceptance": "Orkestrasyon akisi ve riskler (partial failure, replication) net."
+        }
+      ],
+      "verificationSteps": ["Success/policy/invalid testleri", "Partial failure senaryosu (1 target fail)", "Verify zinciri"]
+    },
+    {
+      "id": "PKG-017",
+      "title": "Resilience Hardening (DLQ + Circuit Breaker/Kill Switch)",
+      "dependsOn": ["PKG-009", "PKG-010", "PKG-013"],
+      "inputs": {
+        "dlq": true,
+        "circuitBreaker": { "enabled": true, "windowSeconds": 60, "failureThreshold": 0.5 },
+        "poisonMessagePolicy": "retry-limited then DLQ",
+        "runbook": true
+      },
+      "prompt": "Poison message ve sistematik remote fail durumlari icin hardening ekle: DLQ politikasi, circuit-breaker/kill-switch ve operasyon runbook. docs/reliability-and-error-handling.md guncelle.",
+      "expectedOutputs": [
+        {
+          "type": "code",
+          "pathHints": ["src/Infrastructure/Messaging", "src/Worker/Consumers"],
+          "acceptance": "Retry limiti asildiginda mesaj DLQ'ya gider; worker sistematik fail'de kendini frenler."
+        },
+        {
+          "type": "markdown",
+          "pathHints": ["docs/reliability-and-error-handling.md"],
+          "acceptance": "DLQ/circuit-breaker davranisi ve operasyon adimlari net."
+        }
+      ],
+      "verificationSteps": ["Poison message testi", "Kill-switch davranisi", "DLQ consume/runbook kontrolu"]
+    },
+    {
+      "id": "PKG-018",
+      "title": "Authorization Hardening (DB Allowlist + Job/Hub AuthZ)",
+      "dependsOn": ["PKG-004", "PKG-011", "PKG-012"],
+      "inputs": {
+        "dbAllowlist": { "mustExist": true, "requireActive": true },
+        "jobAuthorization": "jobId bazli erisim (serverGroup/owner)",
+        "signalrAuthorization": "job subscribe authz (opsiyonel)"
+      },
+      "prompt": "Kurum gereksinimine gore authorization hardening yap: DB'de kayitli ve aktif olmayan kullanici 403 alir. JobId bazli erisim kontrolu ekle. SignalR hub subscribe authz kurallarini tanimla. docs/authz-hardening.md olustur.",
+      "expectedOutputs": [
+        {
+          "type": "code",
+          "pathHints": ["src/API/Auth", "src/API/Hubs", "src/Application/Services/Rbac"],
+          "acceptance": "DB allowlist enforced; jobId bazli 403 senaryolari calisir."
+        },
+        {
+          "type": "markdown",
+          "pathHints": ["docs/authz-hardening.md"],
+          "acceptance": "Policy/handler kurallari dokumante."
+        }
+      ],
+      "verificationSteps": ["DB'de user yok -> 403", "IsActive=false -> 403", "JobId access denied -> 403"]
+    },
+    {
+      "id": "PKG-019",
+      "title": "User & Role Management API (Soft Delete) + Audit Reporting",
+      "dependsOn": ["PKG-018", "PKG-013"],
+      "inputs": {
+        "softDelete": "IsActive=false (physical delete yok)",
+        "adminRoles": ["Admin", "SuperAdmin"],
+        "audit": { "who": true, "when": true, "ticketRef": true, "changes": true }
+      },
+      "prompt": "Admin/SuperAdmin icin user ve rol yonetimi endpointlerini ekle: user ekle, pasife al, rol ata/kaldir. Physical delete yok. Audit loglarda bu islemleri de kaydet. docs/user-management.md + docs/audit-and-logging.md guncelle.",
+      "expectedOutputs": [
+        {
+          "type": "code",
+          "pathHints": ["src/API/Controllers", "src/Application/UseCases", "src/Infrastructure/Persistence"],
+          "acceptance": "User/role yonetimi calisir; audit kaydi olusur; silme yerine pasif edilir."
+        },
+        {
+          "type": "markdown",
+          "pathHints": ["docs/user-management.md", "docs/audit-and-logging.md"],
+          "acceptance": "User lifecycle ve audit alanlari net."
+        }
+      ],
+      "verificationSteps": ["User add/disable", "Role assign/remove", "Audit sorgusu"]
+    },
+    {
+      "id": "PKG-020",
+      "title": "Permission Model (Fine-Grained Authorization)",
+      "dependsOn": ["PKG-019"],
+      "inputs": {
+        "tables": ["Permission", "RolePermission"],
+        "policies": ["policy-based authorization"],
+        "migration": true
+      },
+      "prompt": "Role disinda ince yetkiler icin permission modeli ekle (Permission + RolePermission). Policy-based authorization ile endpoint/hub yetkilerini tanimla. docs/permissions-model.md olustur.",
+      "expectedOutputs": [
+        {
+          "type": "code",
+          "pathHints": ["src/Domain/Entities", "src/Infrastructure/Persistence", "src/API/Auth"],
+          "acceptance": "Permission tabanli yetkilendirme calisir ve migration ile DB kurulabilir."
+        },
+        {
+          "type": "markdown",
+          "pathHints": ["docs/permissions-model.md"],
+          "acceptance": "Permission modeli ve policy haritasi dokumante."
+        }
+      ],
+      "verificationSteps": ["Policy senaryolari", "Migration apply"]
+    },
+    {
+      "id": "PKG-021",
+      "title": "Observability v2 (OpenTelemetry + HealthChecks + Rate Limiting)",
+      "dependsOn": ["PKG-013"],
+      "inputs": {
+        "otel": { "traces": true, "metrics": true },
+        "healthChecks": ["db", "rabbitmq", "ldap"],
+        "rateLimiting": true
+      },
+      "prompt": "Kurumsal operasyon icin observability genislet: OpenTelemetry trace/metric, healthcheck endpointleri, API rate limiting ve daha guclu security headers. docs/observability.md olustur.",
+      "expectedOutputs": [
+        {
+          "type": "code",
+          "pathHints": ["src/API/Program.cs", "src/Worker/Program.cs", "src/API/Observability"],
+          "acceptance": "Healthcheck + OTel export + rate limiting calisir."
+        },
+        {
+          "type": "markdown",
+          "pathHints": ["docs/observability.md"],
+          "acceptance": "Trace/metric/healthcheck kapsam ve konfigurasyon net."
+        }
+      ],
+      "verificationSteps": ["Health endpoint", "OTel export smoke test", "Rate limit testi"]
+    },
+    {
+      "id": "PKG-022",
+      "title": "SignalR Scale-Out (Backplane) + Deployment Guide",
+      "dependsOn": ["PKG-012", "PKG-014"],
+      "inputs": {
+        "scaleOut": "Redis backplane (opsiyonel)",
+        "lb": "sticky-session or backplane",
+        "timeouts": ["websocket idle timeout", "proxy limits"]
+      },
+      "prompt": "API scale-out senaryosu icin SignalR backplane (Redis) opsiyonunu ekle ve deploy guide yaz. Sticky session vs backplane kararlarini dokumante et.",
+      "expectedOutputs": [
+        {
+          "type": "code",
+          "pathHints": ["src/API/Program.cs"],
+          "acceptance": "Backplane aktiflestirilebiliyor (config ile)."
+        },
+        {
+          "type": "markdown",
+          "pathHints": ["docs/signalr-scaleout.md"],
+          "acceptance": "LB/backplane/timeouts notlari net."
+        }
+      ],
+      "verificationSteps": ["Multi-instance smoke test (opsiyonel)", "Reconnect/resync senaryosu"]
+    },
+    {
+      "id": "PKG-023",
+      "title": "Key Rotation + Secret Management Runbooks",
+      "dependsOn": ["PKG-002", "PKG-009"],
+      "inputs": {
+        "payloadKeys": ["KeyId rotation", "multi-key decrypt"],
+        "tls": ["cert rotation runbook"],
+        "secretsStore": ["Windows Credential Manager", "Vault"]
+      },
+      "prompt": "AES-GCM key rotation (KeyId) ve secret/certificate rotation icin runbook ve (gerekirse) multi-key decrypt destegi ekle. docs/ops-runbooks.md olustur.",
+      "expectedOutputs": [
+        {
+          "type": "code",
+          "pathHints": ["src/Infrastructure/Security/AesGcmPayloadProtector.cs"],
+          "acceptance": "KeyId ile decrypt edilebilir; rotation senaryosu desteklenir veya dokumante edilir."
+        },
+        {
+          "type": "markdown",
+          "pathHints": ["docs/ops-runbooks.md"],
+          "acceptance": "Key/cert/secret rotation adimlari ve guvenlik notlari net."
+        }
+      ],
+      "verificationSteps": ["KeyId rotation smoke test (2 key)", "Docs review"]
     }
   ],
   "executionOrder": [
@@ -493,6 +726,15 @@
     "PKG-011",
     "PKG-012",
     "PKG-013",
-    "PKG-014"
+    "PKG-015",
+    "PKG-016",
+    "PKG-017",
+    "PKG-018",
+    "PKG-019",
+    "PKG-014",
+    "PKG-020",
+    "PKG-021",
+    "PKG-022",
+    "PKG-023"
   ]
 }

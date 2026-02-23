@@ -8,6 +8,7 @@ public sealed class Job
     public JobType Type { get; set; }
     public JobStatus Status { get; set; } = JobStatus.Pending;
     public string RequestedBy { get; set; } = string.Empty;
+    public string RequestedBySubject { get; set; } = string.Empty;
     public Guid? ServerGroupId { get; set; }
     public ServerGroup? ServerGroup { get; set; }
     public string? CorrelationId { get; set; }
