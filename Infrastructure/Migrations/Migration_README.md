@@ -9,6 +9,7 @@ Bu klasor EF Core migration dosyalarini barindirir.
 - `AddJobTargetAndJobResourceUniqueness` (multi-instance duplicate korumasi icin unique indexler)
   - `JobTargets(JobId, ServerName)` unique
   - `JobResources(JobTargetId, ResourceType, ResourceName, ResourcePath)` unique
+- `AddDistributedLease` (multi-instance singleton isler icin `DistributedLeases` tablosu)
 
 ## Yeni Migration Olusturma
 1. (Opsiyonel) Tooling icin gercek connection string vermek istersen:

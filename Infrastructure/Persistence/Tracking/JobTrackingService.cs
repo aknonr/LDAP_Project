@@ -4,16 +4,19 @@ using Domain.Entities;
 using Domain.Enums;
 using Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Infrastructure.Persistence.Tracking;
 
 public sealed class JobTrackingService : IJobTrackingService
 {
     private readonly AdpmDbContext _dbContext;
+    private readonly ILogger<JobTrackingService> _logger;
 
-    public JobTrackingService(AdpmDbContext dbContext)
+    public JobTrackingService(AdpmDbContext dbContext, ILogger<JobTrackingService> logger)
     {
         _dbContext = dbContext;
+        _logger = logger;
     }
 
     public async Task<TargetUpdateSnapshot?> ApplyTargetResultAsync(
@@ -27,6 +30,7 @@ public sealed class JobTrackingService : IJobTrackingService
         CancellationToken cancellationToken)
     {
         // Result event'i ile hedef kaydini gunceller ve job ozetini tekrar hesaplar.
+        var normalizedTimestamp = NormalizeTimestamp(occurredAt);
         var target = await _dbContext.JobTargets
             .FirstOrDefaultAsync(item => item.JobId == jobId && item.Id == targetId, cancellationToken);
 
@@ -43,10 +47,25 @@ public sealed class JobTrackingService : IJobTrackingService
             return null;
         }
 
+        if (!CanApplyTargetTransition(target.Status, status, target.UpdatedAt, normalizedTimestamp))
+        {
+            _logger.LogWarning(
+                "Stale/out-of-order target event drop. JobId={JobId}, TargetId={TargetId}, Current={CurrentStatus}, Incoming={IncomingStatus}, CurrentAt={CurrentUpdatedAt}, IncomingAt={IncomingUpdatedAt}",
+                jobId,
+                targetId,
+                target.Status,
+                status,
+                target.UpdatedAt,
+                normalizedTimestamp);
+
+            var staleCounts = await BuildCountsAsync(jobId, cancellationToken);
+            return BuildTargetSnapshot(target, job, staleCounts, correlationId);
+        }
+
         target.Status = status;
         target.ErrorCode = errorCode;
         target.ErrorMessage = SensitiveDataRedactor.Redact(errorMessage);
-        target.UpdatedAt = NormalizeTimestamp(occurredAt);
+        target.UpdatedAt = normalizedTimestamp;
 
         if (job.StartedAt is null)
         {
@@ -60,20 +79,7 @@ public sealed class JobTrackingService : IJobTrackingService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return new TargetUpdateSnapshot
-        {
-            JobId = job.Id,
-            TargetId = target.Id,
-            TargetStatus = target.Status.ToString(),
-            JobStatus = job.Status.ToString(),
-            ErrorCode = target.ErrorCode,
-            ErrorMessage = target.ErrorMessage,
-            UpdatedAt = target.UpdatedAt,
-            TargetCount = counts.TotalCount,
-            SuccessCount = counts.SuccessCount,
-            FailedCount = counts.FailedCount,
-            CorrelationId = correlationId ?? job.CorrelationId
-        };
+        return BuildTargetSnapshot(target, job, counts, correlationId);
     }
 
     public async Task<JobProgressSnapshot?> ApplyJobProgressAsync(
@@ -94,6 +100,19 @@ public sealed class JobTrackingService : IJobTrackingService
         }
 
         var normalizedTimestamp = NormalizeTimestamp(occurredAt);
+        if (!CanApplyJobTransition(job, status, normalizedTimestamp))
+        {
+            _logger.LogWarning(
+                "Stale/out-of-order job progress event drop. JobId={JobId}, Current={CurrentStatus}, Incoming={IncomingStatus}, IncomingAt={IncomingUpdatedAt}",
+                job.Id,
+                job.Status,
+                status,
+                normalizedTimestamp);
+
+            var staleCounts = await BuildCountsAsync(job.Id, cancellationToken);
+            return BuildJobSnapshot(job, staleCounts, message, ResolveJobLastKnownTimestamp(job), correlationId);
+        }
+
         job.Status = status;
         job.CorrelationId ??= correlationId;
 
@@ -116,12 +135,24 @@ public sealed class JobTrackingService : IJobTrackingService
         var counts = await BuildCountsAsync(job.Id, cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return new JobProgressSnapshot
+        return BuildJobSnapshot(job, counts, message, normalizedTimestamp, correlationId);
+    }
+
+    private static TargetUpdateSnapshot BuildTargetSnapshot(
+        JobTarget target,
+        Job job,
+        (int TotalCount, int PendingCount, int InProgressCount, int SuccessCount, int FailedCount) counts,
+        string? correlationId)
+    {
+        return new TargetUpdateSnapshot
         {
             JobId = job.Id,
+            TargetId = target.Id,
+            TargetStatus = target.Status.ToString(),
             JobStatus = job.Status.ToString(),
-            Message = SensitiveDataRedactor.Redact(message),
-            UpdatedAt = normalizedTimestamp,
+            ErrorCode = target.ErrorCode,
+            ErrorMessage = target.ErrorMessage,
+            UpdatedAt = target.UpdatedAt,
             TargetCount = counts.TotalCount,
             SuccessCount = counts.SuccessCount,
             FailedCount = counts.FailedCount,
@@ -129,8 +160,108 @@ public sealed class JobTrackingService : IJobTrackingService
         };
     }
 
+    private static JobProgressSnapshot BuildJobSnapshot(
+        Job job,
+        (int TotalCount, int PendingCount, int InProgressCount, int SuccessCount, int FailedCount) counts,
+        string? message,
+        DateTimeOffset updatedAt,
+        string? correlationId)
+    {
+        return new JobProgressSnapshot
+        {
+            JobId = job.Id,
+            JobStatus = job.Status.ToString(),
+            Message = SensitiveDataRedactor.Redact(message),
+            UpdatedAt = updatedAt,
+            TargetCount = counts.TotalCount,
+            SuccessCount = counts.SuccessCount,
+            FailedCount = counts.FailedCount,
+            CorrelationId = correlationId ?? job.CorrelationId
+        };
+    }
+
+    private static bool CanApplyTargetTransition(
+        TargetStatus current,
+        TargetStatus incoming,
+        DateTimeOffset currentUpdatedAt,
+        DateTimeOffset incomingUpdatedAt)
+    {
+        if (incomingUpdatedAt < currentUpdatedAt)
+        {
+            return false;
+        }
+
+        if (current == incoming)
+        {
+            return true;
+        }
+
+        if (IsTerminalTargetStatus(current))
+        {
+            return false;
+        }
+
+        if (incoming == TargetStatus.Pending && current != TargetStatus.Pending)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool CanApplyJobTransition(Job job, JobStatus incoming, DateTimeOffset incomingTimestamp)
+    {
+        var lastKnownTimestamp = ResolveJobLastKnownTimestamp(job);
+        if (incomingTimestamp < lastKnownTimestamp && incoming != job.Status)
+        {
+            return false;
+        }
+
+        if (job.Status == incoming)
+        {
+            return true;
+        }
+
+        if (IsTerminal(job.Status))
+        {
+            return false;
+        }
+
+        if (incoming == JobStatus.Pending && job.Status != JobStatus.Pending)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static DateTimeOffset ResolveJobLastKnownTimestamp(Job job)
+    {
+        if (job.CompletedAt is { } completedAt)
+        {
+            return completedAt;
+        }
+
+        if (job.StartedAt is { } startedAt)
+        {
+            return startedAt;
+        }
+
+        return job.CreatedAt == default ? DateTimeOffset.UtcNow : job.CreatedAt;
+    }
+
+    private static bool IsTerminalTargetStatus(TargetStatus status)
+    {
+        return status is TargetStatus.Success or TargetStatus.Failed or TargetStatus.Skipped;
+    }
+
     private static void ApplyJobState(Job job, int pendingCount, int inProgressCount, int failedCount, DateTimeOffset updatedAt)
     {
+        if (IsTerminal(job.Status))
+        {
+            return;
+        }
+
         if (pendingCount > 0 || inProgressCount > 0)
         {
             job.Status = JobStatus.InProgress;

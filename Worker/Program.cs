@@ -8,8 +8,14 @@ using Serilog;
 using Worker.Configuration;
 using Worker.Consumers;
 using Worker.Jobs;
+using Worker.Observability;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+builder.Services.AddWindowsService(options =>
+{
+    options.ServiceName = "EnterpriseADPasswordManager.Worker";
+});
 
 builder.Services.AddSerilog((services, configuration) =>
 {
@@ -24,6 +30,9 @@ builder.Services.Configure<ConsumerOptions>(builder.Configuration.GetSection("Me
 builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Messaging:Outbox"));
 builder.Services.Configure<WorkerRoleOptions>(builder.Configuration.GetSection("WorkerRoles"));
 builder.Services.Configure<VerificationOptions>(builder.Configuration.GetSection("Verification"));
+builder.Services.Configure<InventorySyncLeaseOptions>(builder.Configuration.GetSection("InventorySyncLease"));
+builder.Services.Configure<WorkerHealthOptions>(builder.Configuration.GetSection("Observability:Health"));
+builder.Services.Configure<QueueLagOptions>(builder.Configuration.GetSection("Observability:QueueLag"));
 
 var workerRoles = builder.Configuration.GetSection("WorkerRoles").Get<WorkerRoleOptions>() ?? new WorkerRoleOptions();
 var outboxOptions = builder.Configuration.GetSection("Messaging:Outbox").Get<OutboxOptions>() ?? new OutboxOptions();
@@ -75,7 +84,9 @@ builder.Services.AddMassTransit(configurator =>
         {
             cfg.ReceiveEndpoint(QueueNames.ServerDiscoveryCommands, endpoint =>
             {
-                endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+                endpoint.ConfigureEndpointDefaults(
+                    consumerOptions.ResolveForEndpoint("Discovery"),
+                    options);
                 endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
                 endpoint.ConfigureConsumer<DiscoverServerUsageConsumer>(context);
             });
@@ -85,14 +96,18 @@ builder.Services.AddMassTransit(configurator =>
         {
             cfg.ReceiveEndpoint(QueueNames.AdPasswordChangeCommands, endpoint =>
             {
-                endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+                endpoint.ConfigureEndpointDefaults(
+                    consumerOptions.ResolveForEndpoint("PasswordChange"),
+                    options);
                 endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
                 endpoint.ConfigureConsumer<StartPasswordChangeJobConsumer>(context);
             });
 
             cfg.ReceiveEndpoint(QueueNames.ServerUpdateCommands, endpoint =>
             {
-                endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+                endpoint.ConfigureEndpointDefaults(
+                    consumerOptions.ResolveForEndpoint("Update"),
+                    options);
                 endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
                 endpoint.ConfigureConsumer<UpdateServerResourcesConsumer>(context);
             });
@@ -102,7 +117,9 @@ builder.Services.AddMassTransit(configurator =>
         {
             cfg.ReceiveEndpoint(QueueNames.ServerVerifyCommands, endpoint =>
             {
-                endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+                endpoint.ConfigureEndpointDefaults(
+                    consumerOptions.ResolveForEndpoint("Verify"),
+                    options);
                 endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
                 endpoint.ConfigureConsumer<VerifyServerConsumer>(context);
             });
@@ -111,10 +128,14 @@ builder.Services.AddMassTransit(configurator =>
 });
 
 builder.Services.AddHostedService<Worker.Worker>();
+builder.Services.AddHostedService<WorkerHealthReporterHostedService>();
+builder.Services.AddHostedService<QueueLagReporterHostedService>();
 if (workerRoles.EnableInventorySync)
 {
     builder.Services.AddHostedService<InventorySyncJob>();
 }
+
+builder.Services.AddHttpClient<IQueueLagProbe, RabbitMqManagementQueueLagProbe>();
 
 builder.Services.AddInfrastructure(builder.Configuration);
 

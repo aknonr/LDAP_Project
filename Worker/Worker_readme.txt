@@ -62,3 +62,86 @@
   - update worker: `EnableUpdate=true`
   - verify worker: `EnableVerify=true`
 - Yatay olcekleme icin her rolun instance sayisi ayri arttirilabilir.
+
+## Hardening Update (2026-02-24)
+
+### Neden Yapildi
+- Multi-instance production'da `InventorySyncJob`'un tekil calismasi garanti degildi.
+- Tum consumer endpoint'lerinin ayni concurrency ayariyla calismasi queue starvation riski olusturuyordu.
+- Gec gelen/tekrar event'lerin state overwrite etmesi ve hedeflerin uzun sure `InProgress` kalmasi operasyon riskiydi.
+- Windows Service production operasyonunda health/queue lag gorunurlugu artirilmak istendi.
+
+### Nasil Calisiyor
+- `InventorySyncJob`, DB lease almadan sync calistirmaz:
+  - `DistributedLeases` tablosu
+  - `IDistributedLeaseManager` + `SqlDistributedLeaseManager`
+  - acquire/renew/release dongusu
+- `UpdateServerResourcesConsumer` ve `VerifyServerConsumer`, is basinda `ServerUpdateResultEvent(InProgress)` publish eder.
+- Consumer tuning endpoint bazli override ile yapilir:
+  - `Discovery`, `PasswordChange`, `Update`, `Verify`
+- Worker observability:
+  - `WorkerHealthReporterHostedService` (DB baglantisi + process metrik logu)
+  - `QueueLagReporterHostedService` + `RabbitMqManagementQueueLagProbe`
+- Worker host explicit Windows Service olarak kaydolur:
+  - `AddWindowsService(...)`
+
+### Config Anahtarlari
+- Inventory lease:
+  - `InventorySyncLease:Enabled`
+  - `InventorySyncLease:LeaseName`
+  - `InventorySyncLease:LeaseDurationSeconds`
+  - `InventorySyncLease:RenewIntervalSeconds`
+  - `InventorySyncLease:AcquisitionRetrySeconds`
+- Endpoint bazli consumer tuning:
+  - `Messaging:Consumer:EndpointOverrides:Discovery:*`
+  - `Messaging:Consumer:EndpointOverrides:PasswordChange:*`
+  - `Messaging:Consumer:EndpointOverrides:Update:*`
+  - `Messaging:Consumer:EndpointOverrides:Verify:*`
+- Health:
+  - `Observability:Health:Enabled`
+  - `Observability:Health:IntervalSeconds`
+  - `Observability:Health:CheckDatabase`
+- Queue lag:
+  - `Observability:QueueLag:Enabled`
+  - `Observability:QueueLag:ManagementBaseUrl`
+  - `Observability:QueueLag:VirtualHost`
+  - `Observability:QueueLag:Username`
+  - `Observability:QueueLag:Password`
+  - `Observability:QueueLag:IntervalSeconds`
+  - `Observability:QueueLag:WarningReadyThreshold`
+  - `Observability:QueueLag:WarningUnackedThreshold`
+  - `Observability:QueueLag:Queues`
+
+### Operasyon / Runbook Notlari
+- Minimum HA: Update+Verify rolu icin en az 2 instance.
+- Inventory role (`EnableInventorySync=true`) olan instance sayisi artsa bile lease sebebiyle tek instance aktif sync yapar.
+- Windows Service recovery ornegi:
+  - `sc.exe failure "EnterpriseADPasswordManager.Worker" reset= 86400 actions= restart/5000/restart/15000/restart/60000`
+  - `sc.exe failureflag "EnterpriseADPasswordManager.Worker" 1`
+- Queue lag alarminda once backlog nedeni ayrisimi yap:
+  - remote endpoint saturation
+  - DB bottleneck
+  - downstream timeout/firewall
+
+### Risk / Trade-off
+- DB lease yazimlari ek DB yuk olusturur.
+- Queue lag metric icin RabbitMQ Management API erisimi/accreditation gerekir.
+- Endpoint override tuning ortamdan ortama degisebilir; ilk rollout kontrollu yapilmalidir.
+
+### Rollback Etkisi
+- `InventorySyncLease:Enabled=false` ile lease davranisi kapatilabilir.
+- `Observability:QueueLag:Enabled=false` ile queue lag reporter kapatilabilir.
+- `Messaging:Consumer:EndpointOverrides` bloklari silinirse global ayarlar kullanilir.
+- Kod rollback gerekirse migration geri alinmadan once `DistributedLeases` tablosuna bagimli service davranislari devre disi birakilmalidir.
+
+### Paketler (Kesin Surumler)
+- `Worker/Worker.csproj`:
+  - `MassTransit` `8.4.1`
+  - `MassTransit.EntityFrameworkCore` `8.4.1`
+  - `MassTransit.RabbitMQ` `8.4.1`
+  - `Microsoft.Extensions.Hosting` `8.0.1`
+  - `Microsoft.Extensions.Hosting.WindowsServices` `8.0.1` (yeni)
+  - `Serilog.Extensions.Hosting` `10.0.0`
+  - `Serilog.Settings.Configuration` `10.0.0`
+  - `Serilog.Sinks.EventLog` `4.0.0`
+  - `Serilog.Sinks.File` `7.0.0`

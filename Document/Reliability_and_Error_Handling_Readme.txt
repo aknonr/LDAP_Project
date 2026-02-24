@@ -74,3 +74,72 @@ Bu dokuman; API -> MQ -> Worker -> DB -> SignalR akisinda hata yonetimi, retry v
 - UI:
   - reconnect + REST ile yeniden senkron
   - `ErrorCode` + `ErrorMessage` + `UpdatedAt` alanlarini temel alir
+
+## Hardening Update (2026-02-24)
+
+### 1) InventorySync Singleton (Distributed Lease)
+#### Neden
+- Multi-instance'da ayni periyodik sync'in paralel calisip cift yazim olusturma riskini azaltmak.
+#### Nasil
+- `DistributedLeases` tablosu + `SqlDistributedLeaseManager` ile acquire/renew/release.
+- Lease alamayan instance sync dongusunu bu turda atlar.
+#### Config
+- `InventorySyncLease:*`
+#### Risk/Trade-off
+- Ek DB yazimi.
+- Saat kaymasi lease surelerini etkileyebilir.
+#### Rollback
+- `InventorySyncLease:Enabled=false`.
+
+### 2) Stale / Out-of-Order Guard
+#### Neden
+- Gec gelen event'in daha yeni state'i overwrite etmesini engellemek.
+#### Nasil
+- `JobTrackingService` icinde:
+  - `incoming timestamp < current updatedAt` ise drop
+  - terminal -> non-terminal gecis engeli
+  - non-pending -> pending geri donus engeli
+#### Risk/Trade-off
+- Cok gec gelen fakat farkli status eventleri bilinclli olarak ignore edilir.
+#### Rollback
+- Guard kurallari kod rollback ile geri alinabilir.
+
+### 3) Stuck InProgress Watchdog
+#### Neden
+- Uzun sure `InProgress` kalan hedefleri operasyonel olarak gorunur kilmak.
+#### Nasil
+- API tarafinda `StuckTargetWatchdogHostedService`:
+  - periyodik tarama
+  - varsayilan mod: sadece warning log
+  - opsiyonel: `AutoFailTimedOutTargets=true` ile timeout-fail
+- Multi-instance API icin distributed lease ile singleton calisma opsiyonu.
+#### Config
+- `Reliability:StuckWatchdog:*`
+#### Risk/Trade-off
+- Auto-fail acilirsa timeout degeri yanlis secilirse false-fail olusturabilir.
+#### Rollback
+- `Reliability:StuckWatchdog:Enabled=false`.
+
+### 4) Health / Queue Lag / Windows Service
+#### Neden
+- Firewall/remote endpoint sorunlarinda erken operasyonel sinyal almak.
+#### Nasil
+- `WorkerHealthReporterHostedService`: DB connectivity + process metrikleri.
+- `QueueLagReporterHostedService`: RabbitMQ management API uzerinden queue lag gozlemi.
+- Worker host `AddWindowsService(...)` ile service lifecycle netlestirildi.
+#### Config
+- `Observability:Health:*`
+- `Observability:QueueLag:*`
+#### Runbook
+- Recovery policy:
+  - `sc.exe failure "EnterpriseADPasswordManager.Worker" reset= 86400 actions= restart/5000/restart/15000/restart/60000`
+  - `sc.exe failureflag "EnterpriseADPasswordManager.Worker" 1`
+#### Risk/Trade-off
+- Queue lag probe icin management API credential yonetimi gerekir.
+- Siklikla metrik loglama log hacmini arttirir.
+#### Rollback
+- `Observability:QueueLag:Enabled=false`
+- `Observability:Health:Enabled=false`
+
+## Migration Notu
+- Yeni migration: `20260224203055_AddDistributedLease`
