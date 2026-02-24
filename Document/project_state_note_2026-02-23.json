@@ -1,0 +1,712 @@
+{
+  "report_meta": {
+    "report_type": "detailed_project_state_note",
+    "project_name": "EnterpriseADPasswordManager",
+    "solution": "LDAP_Project.sln",
+    "generated_at": {
+      "local": "2026-02-23T20:26:19+03:00",
+      "note": "Bu rapor, mevcut repo ve README/dokumanlardan derlenmistir."
+    },
+    "source_documents": [
+      "Document/roadmap.json",
+      "Document/agent_handoff.json",
+      "Document/Project_General_Readme.txt",
+      "Document/API_Contract_Readme.txt",
+      "Document/Messaging_Topology_Readme.txt",
+      "Document/Reliability_and_Error_Handling_Readme.txt",
+      "Document/Security_Checklist_Readme.txt",
+      "Document/User_Role_Management_Readme.txt",
+      "Domain/Domain_readme.txt",
+      "Application/Application_readme.txt",
+      "Infrastructure/Infrastructure_readme.txt",
+      "API/API_README.txt",
+      "Worker/Worker_readme.txt"
+    ]
+  },
+  "project_identity": {
+    "architecture": "Onion Architecture + Worker Services + Event Driven",
+    "stack": {
+      "language": "C#",
+      "framework_target": "net8.0",
+      "db": "SQL Server 2022",
+      "messaging": "RabbitMQ + MassTransit",
+      "realtime": "SignalR",
+      "logging": "Serilog (File + EventLog)"
+    },
+    "constraints": [
+      "Reset yok, sadece oldPassword+newPassword ile change",
+      "LDAP sadece LDAPS 636",
+      "Sifre/secret DB ve loglara plain yazilmaz",
+      "MQ password payload plain tasinmaz, AES-GCM sifreli tasinir",
+      "Event-driven zorunlu, polling yok",
+      "Concurrency config bazli yonetilir"
+    ]
+  },
+  "current_phase": {
+    "roadmap_version": "1.4.0",
+    "current_primary_phase": {
+      "id": "PKG-019",
+      "name": "User & Role Management API + Soft Delete + Audit",
+      "status": "in_progress_partial",
+      "reason": "Admin user/role API ve bootstrap mevcut, fakat paket kapanis kriterleri dokumantasyonda halen 'tamamlama' asamasinda takip ediliyor."
+    },
+    "last_stable_completed_phase": "PKG-018",
+    "ui_phase": {
+      "id": "PKG-014",
+      "status": "planned_not_started",
+      "note": "Backend-first stratejisi nedeniyle UI ertelenmis durumda."
+    }
+  },
+  "roadmap_progress": {
+    "total_packages": 24,
+    "package_state_counts": {
+      "completed_confirmed": 16,
+      "completed_inferred": 1,
+      "external_or_repo_disi_prereq": 1,
+      "in_progress_partial": 1,
+      "planned": 5
+    },
+    "completion_ratios": {
+      "confirmed_completion_ratio_percent": 66.7,
+      "effective_progress_ratio_percent_including_inferred_and_external": 75.0
+    },
+    "notes": [
+      "PKG-000 altyapi onkosulu oldugu icin repo disi/isletimsel kabul edilmis durumda.",
+      "PKG-001 solution bootstrap repo yapisindan tamamlanmis olarak gorunuyor."
+    ]
+  },
+  "package_status_matrix": [
+    {
+      "id": "PKG-000",
+      "title": "Infrastructure Prereqs (RabbitMQ + TLS + Accounts)",
+      "state": "external_or_repo_disi_prereq",
+      "depends_on": [],
+      "done": [
+        "Roadmap ve configlerde TLS/vhost/use-quorum varsayimlari uygulanmis."
+      ],
+      "open": [
+        "Kurumsal runbook ve operasyonel firewall/vhost dokumanlarinin repo disi teyidi."
+      ]
+    },
+    {
+      "id": "PKG-001",
+      "title": "Backend Solution Bootstrap (Onion Architecture)",
+      "state": "completed_inferred",
+      "depends_on": ["PKG-000"],
+      "done": [
+        "Domain/Application/Infrastructure/API/Worker katmanlari mevcut.",
+        "Solution ve test projeleri calisiyor."
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-002",
+      "title": "Config & Secrets Strategy",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-001"],
+      "done": [
+        "appsettings placeholder yapisi",
+        "AES-GCM payload config iskeleti",
+        "Serilog config",
+        "Secret redaction prensipleri dokumante"
+      ],
+      "open": [
+        "Vault/CredentialManager production entegrasyonu (hardening backlog)"
+      ]
+    },
+    {
+      "id": "PKG-003",
+      "title": "SQL Server Schema + EF Core Models & Migrations",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-001"],
+      "done": [
+        "AdpmDbContext ve entity mapleri",
+        "Migrations: AddServerInventoryExternalId, AddMassTransitOutbox, AddJobRequestedBySubject"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-004",
+      "title": "OIDC Login + Group Allowlist + RBAC",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-003", "PKG-002"],
+      "done": [
+        "OIDC JWT validation",
+        "Group allowlist handler",
+        "RBAC claims transform"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-005",
+      "title": "TH API Inventory Sync",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-003", "PKG-002"],
+      "done": [
+        "ThApiClient + InventorySyncService",
+        "Worker InventorySyncJob",
+        "DiffRule bazli guncelleme"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-006",
+      "title": "AD Password Change Service (LDAPS 636)",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-004", "PKG-002"],
+      "done": [
+        "AdPasswordChangeService",
+        "DN/UPN/DOMAIN\\\\user cozumleme",
+        "ErrorCode mapping",
+        "Retry idempotency notu (old invalid + new bind basarili ise success)"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-007",
+      "title": "Resource Discovery Engine",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-003"],
+      "done": [
+        "DiscoveryEngine + strategy plug-in modeli",
+        "Service/ScheduledTask/IIS/COM+/UserRight stratejileri"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-008",
+      "title": "Update Engine",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-007", "PKG-006"],
+      "done": [
+        "UpdateEngine + kaynak tipi stratejileri",
+        "Idempotent davranis",
+        "Target account match edilmezse no-op success"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-009",
+      "title": "RabbitMQ Topology + Message Contracts",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-002", "PKG-003"],
+      "done": [
+        "Queue topology",
+        "Command/Event contractlari",
+        "AES-GCM encrypted payload modeli"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-010",
+      "title": "Worker Consumers + Concurrency + Retry",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-009", "PKG-008"],
+      "done": [
+        "Consumers aktif",
+        "Prefetch/concurrency configten okunuyor",
+        "Retry + timeout + outbox kullanimi"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-011",
+      "title": "API Endpoints (Auth + Job Create/Status)",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-004", "PKG-009"],
+      "done": [
+        "Auth/Jobs API endpointleri",
+        "DB kayit + MQ publish",
+        "Validation ve role kontrol"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-012",
+      "title": "SignalR Live Updates",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-011", "PKG-010"],
+      "done": [
+        "JobsHub",
+        "Worker result event -> API consumer -> SignalR bridge"
+      ],
+      "open": [
+        "Scale-out backplane karari PKG-022'de"
+      ]
+    },
+    {
+      "id": "PKG-013",
+      "title": "Observability + Audit Trail + Security Checklist",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-002", "PKG-010", "PKG-011"],
+      "done": [
+        "Correlation middleware",
+        "Structured request logging",
+        "Audit read/write",
+        "Security headers",
+        "Security checklist"
+      ],
+      "open": [
+        "SIEM forwarding (opsiyonel backlog)"
+      ]
+    },
+    {
+      "id": "PKG-015",
+      "title": "UserRight Discovery Strategy",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-007"],
+      "done": [
+        "UserRight discovery stub olmaktan cikarildi",
+        "secedit export ile real implementation"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-016",
+      "title": "Password-Change Orchestration (AD -> Update -> Verify)",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-006", "PKG-008", "PKG-010", "PKG-011"],
+      "done": [
+        "StartPasswordChangeJobCommand",
+        "Worker orchestrator consumer",
+        "AD success olmadan update/verify ilerlememe prensibi"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-017",
+      "title": "Resilience Hardening",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-009", "PKG-010", "PKG-013"],
+      "done": [
+        "Consumer retry configurable",
+        "Kill-switch configurable",
+        "Remote execution circuit breaker",
+        "DLQ davranisi dokumante"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-018",
+      "title": "Authorization Hardening",
+      "state": "completed_confirmed",
+      "depends_on": ["PKG-004", "PKG-011", "PKG-012"],
+      "done": [
+        "DB allowlist (must exist + active)",
+        "JobId bazli API authz",
+        "SignalR subscribe authz",
+        "Default+Fallback fail-closed"
+      ],
+      "open": []
+    },
+    {
+      "id": "PKG-019",
+      "title": "User & Role Management API + Soft Delete + Audit",
+      "state": "in_progress_partial",
+      "depends_on": ["PKG-018", "PKG-013"],
+      "done": [
+        "AdminUsersController + AdminRolesController",
+        "List/Upsert/Activate/RoleAssign use-case'leri",
+        "IdentityRepository",
+        "Lockout onlemi (last admin)",
+        "Bootstrap service (opsiyonel ilk SuperAdmin)"
+      ],
+      "open": [
+        "Paket kapanis kriterlerinin test/dokuman/runbook seviyesinde net finalizasyonu"
+      ]
+    },
+    {
+      "id": "PKG-014",
+      "title": "UI (Phase 2)",
+      "state": "planned",
+      "depends_on": ["PKG-011", "PKG-012", "PKG-015", "PKG-016", "PKG-018"],
+      "done": [],
+      "open": [
+        "UI stack secimi (React veya Blazor)",
+        "2000+ hedefte paging/virtualization",
+        "Role bazli UI guard"
+      ]
+    },
+    {
+      "id": "PKG-020",
+      "title": "Permission Model (Fine-Grained Authorization)",
+      "state": "planned",
+      "depends_on": ["PKG-019"],
+      "done": [],
+      "open": [
+        "Permission + RolePermission modeli",
+        "Policy-based authz genisletmesi"
+      ]
+    },
+    {
+      "id": "PKG-021",
+      "title": "Observability v2",
+      "state": "planned",
+      "depends_on": ["PKG-013"],
+      "done": [],
+      "open": [
+        "OpenTelemetry traces/metrics",
+        "HealthChecks",
+        "Rate limiting"
+      ]
+    },
+    {
+      "id": "PKG-022",
+      "title": "SignalR Scale-Out + Deployment Guide",
+      "state": "planned",
+      "depends_on": ["PKG-012", "PKG-014"],
+      "done": [],
+      "open": [
+        "Backplane/sticky-session karari",
+        "Multi-instance realtime deployment notlari"
+      ]
+    },
+    {
+      "id": "PKG-023",
+      "title": "Key Rotation + Secret Management Runbooks",
+      "state": "planned",
+      "depends_on": ["PKG-002", "PKG-009"],
+      "done": [],
+      "open": [
+        "KeyId rotation stratejisi",
+        "Secret/cert rotation runbook",
+        "Gerekirse multi-key decrypt destegi"
+      ]
+    }
+  ],
+  "runtime_topology_inventory": {
+    "queues_and_exchanges": {
+      "commands": [
+        "ad.passwordchange.commands",
+        "server.discovery.commands",
+        "server.update.commands",
+        "server.verify.commands"
+      ],
+      "result_exchange_or_queue": [
+        "server.result.events"
+      ]
+    },
+    "message_contracts": {
+      "commands": [
+        "StartPasswordChangeJobCommand",
+        "DiscoverServerUsageCommand",
+        "UpdateServerResourcesCommand",
+        "VerifyServerCommand"
+      ],
+      "events": [
+        "ServerUsageResultEvent",
+        "ServerUpdateResultEvent",
+        "JobProgressEvent"
+      ]
+    },
+    "flow": [
+      "API command publish eder",
+      "Worker command consume eder",
+      "Worker result event publish eder",
+      "API result event consume eder",
+      "API DB update + SignalR broadcast yapar"
+    ]
+  },
+  "api_surface_inventory": {
+    "controllers": [
+      "AuthController",
+      "JobsController",
+      "AuditController",
+      "AdminUsersController",
+      "AdminRolesController"
+    ],
+    "routes": [
+      {
+        "method": "POST",
+        "path": "/auth/login",
+        "roles": "anonymous",
+        "purpose": "OIDC authorize URL uretimi"
+      },
+      {
+        "method": "POST",
+        "path": "/jobs/discovery",
+        "roles": ["Admin", "Operator"],
+        "purpose": "Discovery job olusturma"
+      },
+      {
+        "method": "POST",
+        "path": "/jobs/password-change",
+        "roles": ["Admin", "Operator"],
+        "purpose": "Password-change orchestration baslatma"
+      },
+      {
+        "method": "GET",
+        "path": "/jobs/{id}",
+        "roles": ["Admin", "Operator", "Viewer"],
+        "purpose": "Job status okuma (job-level authz ile)"
+      },
+      {
+        "method": "GET",
+        "path": "/jobs/{id}/targets",
+        "roles": ["Admin", "Operator", "Viewer"],
+        "purpose": "Job target listesi (skip/take)"
+      },
+      {
+        "method": "GET",
+        "path": "/audit/logs",
+        "roles": ["Admin", "SuperAdmin"],
+        "purpose": "Audit raporlama"
+      },
+      {
+        "method": "GET",
+        "path": "/admin/users",
+        "roles": ["Admin", "SuperAdmin"],
+        "purpose": "Kullanici listeleme"
+      },
+      {
+        "method": "POST",
+        "path": "/admin/users",
+        "roles": ["Admin", "SuperAdmin"],
+        "purpose": "Kullanici upsert"
+      },
+      {
+        "method": "PUT",
+        "path": "/admin/users/{id}/active",
+        "roles": ["Admin", "SuperAdmin"],
+        "purpose": "Soft delete/activate (IsActive)"
+      },
+      {
+        "method": "PUT",
+        "path": "/admin/users/{id}/roles",
+        "roles": ["Admin", "SuperAdmin"],
+        "purpose": "Rol atama/geri alma"
+      },
+      {
+        "method": "GET",
+        "path": "/admin/roles",
+        "roles": ["Admin", "SuperAdmin"],
+        "purpose": "Rol envanteri"
+      }
+    ],
+    "signalr": {
+      "hub": "/hubs/jobs",
+      "events": ["jobUpdated", "targetUpdated"],
+      "authorization": "Admin/Operator/Viewer/SuperAdmin + job-level authz"
+    }
+  },
+  "worker_inventory": {
+    "consumers": [
+      "DiscoverServerUsageConsumer",
+      "StartPasswordChangeJobConsumer",
+      "UpdateServerResourcesConsumer",
+      "VerifyServerConsumer"
+    ],
+    "background_jobs": [
+      "InventorySyncJob"
+    ],
+    "worker_roles_config": {
+      "EnableDiscovery": true,
+      "EnableUpdate": true,
+      "EnableVerify": true,
+      "EnableInventorySync": true
+    },
+    "verification_chain": {
+      "config_key": "Verification:EnablePostUpdateVerification",
+      "default": true
+    }
+  },
+  "database_inventory": {
+    "dbcontext": "Infrastructure/Persistence/AdpmDbContext.cs",
+    "tables": [
+      "AppUsers",
+      "Roles",
+      "AppUserRoles",
+      "Jobs",
+      "JobTargets",
+      "JobResources",
+      "ServerInventories",
+      "ServerGroups",
+      "AuditLogs",
+      "OutboxMessages"
+    ],
+    "important_indexes": [
+      "AppUsers.Subject unique",
+      "Roles.Name unique",
+      "ServerGroups.ExternalId unique",
+      "AuditLogs.When",
+      "AuditLogs.CorrelationId"
+    ],
+    "migrations": [
+      "20260211161546_AddServerInventoryExternalId",
+      "20260212213105_AddMassTransitOutbox",
+      "20260214211424_AddJobRequestedBySubject"
+    ]
+  },
+  "security_control_map": {
+    "identity_and_access": {
+      "implemented": [
+        "OIDC bearer validation",
+        "Group allowlist",
+        "DB allowlist (must-exist + IsActive=true)",
+        "RBAC claims transform",
+        "Job-level authorization",
+        "SignalR subscription authorization",
+        "Default/Fallback fail-closed policy"
+      ],
+      "planned": [
+        "Fine-grained permission modeli (PKG-020)"
+      ]
+    },
+    "secret_protection": {
+      "implemented": [
+        "AES-GCM payload encryption",
+        "No plaintext password in DB/log/MQ",
+        "Redaction policy",
+        "LDAPS 636 zorunlu"
+      ],
+      "planned": [
+        "Secret store production hardening (Vault/Credential Manager)"
+      ]
+    },
+    "transport_messaging": {
+      "implemented": [
+        "RabbitMQ TLS 5671",
+        "Quorum queue opsiyonu",
+        "Outbox (publish/consume dayaniklilik)"
+      ],
+      "planned": [
+        "Key/certificate rotation runbook (PKG-023)"
+      ]
+    },
+    "resilience": {
+      "implemented": [
+        "Retry policy",
+        "Kill-switch",
+        "Remote circuit breaker",
+        "Timeout controls",
+        "Error queue (queue_error) operasyon modeli"
+      ],
+      "planned": [
+        "Observability v2 ile daha derin operasyon izleme (PKG-021)"
+      ]
+    }
+  },
+  "quality_snapshot": {
+    "environment": {
+      "dotnet_sdk": "9.0.311",
+      "runtime_net8_installed": true
+    },
+    "latest_validation_runs": [
+      {
+        "command": "dotnet build LDAP_Project.sln -c Release",
+        "result": "success",
+        "warnings": 0,
+        "errors": 0
+      },
+      {
+        "command": "dotnet test LDAP_Project.sln -c Release",
+        "result": "success",
+        "total_tests": 4,
+        "failed": 0
+      }
+    ],
+    "transient_note": "Paralel build+test tetiklenince bir kez file-lock (CS2012) goruldu; tekil build tekrarinda temiz gecti."
+  },
+  "known_risks_and_operational_attention": [
+    {
+      "id": "RISK-001",
+      "topic": "SignalR production behavior",
+      "details": [
+        "Token expire/reconnect",
+        "Backpressure ve event yogunlugu",
+        "LB/proxy websocket timeout",
+        "Scale-out'ta sticky/backplane gereksinimi"
+      ],
+      "mitigation_path": "PKG-022 + PKG-021"
+    },
+    {
+      "id": "RISK-002",
+      "topic": "Bootstrap admin operations",
+      "details": [
+        "Auth:Bootstrap production'da gecici/denetimli acilmali",
+        "Multi-instance startup race ihtimali"
+      ],
+      "mitigation_path": "Runbook + operasyon proseduru"
+    }
+  ],
+  "next_targets_detailed": {
+    "phase_1_close_pkg019": {
+      "objective": "PKG-019'u resmi olarak kapatmak",
+      "tasks": [
+        "Admin use-case negatif senaryolarini testlerle guclendirmek",
+        "Son admin lockout ve superadmin atama kurallari icin acceptance checklist",
+        "User management operasyon runbook finali"
+      ],
+      "exit_criteria": [
+        "Soft delete + role yönetimi + audit acceptance tam",
+        "Dokumanlar (security/user-management/audit) final"
+      ]
+    },
+    "phase_2_pkg014_ui": {
+      "objective": "UI Phase-2 implementasyonu",
+      "tasks": [
+        "UI stack secimi (React/Blazor)",
+        "OIDC + SignalR client entegrasyonu",
+        "2000+ target icin paging/virtualization",
+        "Role bazli UI guard"
+      ],
+      "exit_criteria": [
+        "Job create -> detail auto-open",
+        "Realtime updates + reconnect-resync calisiyor",
+        "Viewer teknik detay kisiti dogrulandi"
+      ]
+    },
+    "phase_3_pkg020_permissions": {
+      "objective": "Permission modeli",
+      "tasks": [
+        "Permission/RolePermission tablo tasarimi",
+        "Policy mapping",
+        "Endpoint/hub authz genisletme"
+      ]
+    },
+    "phase_4_pkg021_observability_v2": {
+      "objective": "OTel + HealthChecks + Rate Limiting",
+      "tasks": [
+        "Trace/metric export",
+        "DB/Rabbit/LDAP health checks",
+        "API rate limiting"
+      ]
+    },
+    "phase_5_pkg022_scaleout": {
+      "objective": "SignalR scale-out stratejisi",
+      "tasks": [
+        "Backplane veya sticky-session kararinin sabitlenmesi",
+        "Deployment guide ve timeout/infra ayarlari"
+      ]
+    },
+    "phase_6_pkg023_rotation": {
+      "objective": "Key/secret/cert rotation operasyonlari",
+      "tasks": [
+        "KeyId rotation runbook",
+        "Secret store lifecycle",
+        "Certificate rotation proseduru"
+      ]
+    },
+    "phase_7_final_refactor": {
+      "objective": "DTO katmani ayrimi (en son)",
+      "tasks": [
+        "API contract DTO ve Application model ayrisini netlestirme",
+        "Geriye uyumluluk kontrolu"
+      ]
+    }
+  },
+  "implementation_path_recommended": [
+    "1) PKG-019 kapanisini bitir ve acceptance signoff al",
+    "2) PKG-014 icin UI stack kararini kilitle ve frontend sprint ac",
+    "3) UI tamamlaninca permission modeline gec (PKG-020)",
+    "4) Sonra observability ve rate-limit ile operasyon olgunlugunu artir (PKG-021)",
+    "5) Multi-instance realtime deployment tasarimini finalize et (PKG-022)",
+    "6) Key/secret/cert rotation runbooklarini production-ready hale getir (PKG-023)",
+    "7) DTO ayrimini en son teknik borc temizligi olarak yap"
+  ],
+  "quick_meeting_summary": {
+    "where_we_are_now": "Backend cekirdegi ve guvenlik hardening tamamlandi; su an PKG-019 kapanis asamasi, UI henuz baslamadi.",
+    "what_is_running": "API + Worker event-driven olarak discovery/update/verify/password-change orchestration akisini uc uca calistiriyor.",
+    "what_is_next": "PKG-019 finalize -> PKG-014 UI -> PKG-020+ ileri kurumsal olgunluk paketleri."
+  }
+}

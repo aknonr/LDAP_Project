@@ -1,5 +1,11 @@
 # API Katmani
 
+## State Snapshot (2026-02-23)
+- Snapshot date: `2026-02-23`
+- Current phase: `PKG-019 (in_progress_partial)`
+- Last stable completion: `PKG-018`
+- Next targets: `PKG-019 close -> PKG-014 -> PKG-020 -> PKG-021 -> PKG-022 -> PKG-023`
+
 ## Amac
 - OIDC login, RBAC kontrolu, job endpointleri, audit raporlama ve SignalR canli guncelleme bu katmanda calisir.
 
@@ -37,7 +43,7 @@
 
 ## Akis Notu
 - `POST /jobs/password-change` job-level orkestrasyon komutunu publish eder.
-- Worker tarafinda akiş: AD (LDAPS) change (old+new) -> update -> (opsiyonel) verify.
+- Worker tarafinda akis: AD (LDAPS) change (old+new) -> update -> (opsiyonel) verify.
 
 - RBAC notu: Kullanici DB'de yoksa 403. Ilk kurulumda `Auth:Bootstrap` veya manuel SQL ile en az 1 admin olusturulmalidir.
 

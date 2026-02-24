@@ -1,11 +1,18 @@
 # Worker Katmani
 
+## State Snapshot (2026-02-23)
+- Snapshot date: `2026-02-23`
+- Current phase: `PKG-019 (in_progress_partial)`
+- Last stable completion: `PKG-018`
+- Next targets: `PKG-019 close -> PKG-014 -> PKG-020 -> PKG-021 -> PKG-022 -> PKG-023`
+
 ## Amac
 - Command queue'larini tuketir, islem sonuc event'lerini publish eder.
 
 ## Mevcut Icerik
 - Consumer'lar:
   - `DiscoverServerUsageConsumer`
+  - `StartPasswordChangeJobConsumer`
   - `UpdateServerResourcesConsumer`
   - `VerifyServerConsumer`
 - Inventory sync:
@@ -27,6 +34,7 @@
   - Result publish exchange: `server.result.events`
   - Quorum queue (opsiyonel): `UseQuorumQueues`
   - EF Outbox (opsiyonel): `Messaging:Outbox`
+  - Deterministic MessageId: `update/verify` dispatch'lerinde stabil `MessageId` ile inbox dedupe yardimi
 - Concurrency:
   - `PrefetchCount` ve `ConcurrencyLimit` configten okunur.
   - Retry: 3 deneme, 5 saniye aralik
@@ -48,6 +56,7 @@
 ## Yuk Dagitimi ve Failover
 - Ayni queue'yu birden fazla worker instance tukettiginde `competing consumers` modeli ile yuk dagitilir.
 - Bir worker instance duserse, mesajlar queue'da kalir ve ayakta olan worker'lar tuketmeye devam eder.
+- Ayni target icin tekrar dispatch durumunda worker tarafi deterministic `MessageId` + DB unique index ile cift kayit riskini azaltir.
 - Is rol bazli bolunebilir:
   - discovery worker: `EnableDiscovery=true`
   - update worker: `EnableUpdate=true`

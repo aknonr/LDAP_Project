@@ -1,5 +1,11 @@
 # EnterpriseADPasswordManager (LDAP_Project)
 
+## State Snapshot (2026-02-23)
+- Snapshot date: `2026-02-23`
+- Current phase: `PKG-019 (in_progress_partial)`
+- Last stable completion: `PKG-018`
+- Next targets: `PKG-019 close -> PKG-014 -> PKG-020 -> PKG-021 -> PKG-022 -> PKG-023`
+
 Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin **Onion Architecture + Worker Services + Event Driven** yaklasimiyla ilerliyor.
 
 ## Hedef Teknoloji
@@ -106,6 +112,8 @@ Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin
 - ScheduledTask/IIS/COM+ update stratejileri WinRM/PowerShell ile aktiflestirildi.
 - Verify akisi aktif: update sonrasi (opsiyonel) verify komutu gonderilir ve final durum event ile UI'ya yansir.
 - RabbitMQ quorum queue + EF outbox hardening eklendi (HA + publish/consume dayanikliligi).
+- Multi-instance duplicate koruma: deterministic `MessageId` + `JobTargets/JobResources` unique index + update hazirlik adiminda unique-conflict fallback.
+- WinRM hata loglari firewall/network teshisi icin detaylandirildi (`ErrorSummary` + `Hint` + timeout/transport alanlari).
 
 ## Troubleshooting Notu
 - `dotnet list ... --vulnerable` komutu bu ortamda tekrar calistirildi ve basarili.

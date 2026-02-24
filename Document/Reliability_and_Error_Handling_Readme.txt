@@ -1,5 +1,11 @@
 # Reliability and Error Handling
 
+## State Snapshot (2026-02-23)
+- Snapshot date: `2026-02-23`
+- Current phase: `PKG-019 (in_progress_partial)`
+- Last stable completion: `PKG-018`
+- Next targets: `PKG-019 close -> PKG-014 -> PKG-020 -> PKG-021 -> PKG-022 -> PKG-023`
+
 Bu dokuman; API -> MQ -> Worker -> DB -> SignalR akisinda hata yonetimi, retry ve UI'ya yansitma standartlarini ozetler.
 
 ## Temel Prensipler
@@ -26,6 +32,17 @@ Bu dokuman; API -> MQ -> Worker -> DB -> SignalR akisinda hata yonetimi, retry v
   - tablolar: `InboxState`, `OutboxMessage`, `OutboxState`
   - config: `Messaging:Outbox:*`
 
+## Multi-Instance Duplicate Koruma
+- Worker birden fazla instance calisirken command tekrarlarina karsi deterministic `MessageId` kullanilir:
+  - `StartPasswordChangeJobCommand` (job bazli)
+  - `DiscoverServerUsageCommand` (job+target bazli)
+  - `UpdateServerResourcesCommand` (job+target bazli)
+  - `VerifyServerCommand` (job+target bazli)
+- DB seviyesinde cift kayit engelleri:
+  - `JobTargets(JobId, ServerName)` unique index
+  - `JobResources(JobTargetId, ResourceType, ResourceName, ResourcePath)` unique index
+- `UpdateServerResourcesConsumer` kaynak hazirlama adiminda unique conflict olursa mevcut kayitlara donerek idempotent sekilde devam eder.
+
 ## DLQ (Error Queue) Politikasi
 - Consumer retry limiti asildiginda mesajlar **DLQ** olarak kabul ettigimiz `<queue>_error` kuyruguna tasinir (MassTransit default davranis).
 - Operasyon:
@@ -40,10 +57,14 @@ Bu dokuman; API -> MQ -> Worker -> DB -> SignalR akisinda hata yonetimi, retry v
 - Not: Remote/LDAP gibi "is hatalari" genelde event ile raporlandigi icin exception olusturmaz; kill-switch daha cok kod bug'u/DB baglanti gibi sistem hatalarini frenler.
 
 ## Remote Execution Circuit Breaker (WinRM)
-- WinRM/PowerShell cagrilarinda sistematik failure oranı yuksekse circuit-breaker devreye girer ve bir sure **fail-fast** yapar:
+- WinRM/PowerShell cagrilarinda sistematik failure orani yuksekse circuit-breaker devreye girer ve bir sure **fail-fast** yapar:
   - Config: `RemoteExecution:CircuitBreaker:*`
   - Sonuc: `CIRCUIT_OPEN` error code
-- Amaç: WinRM tamamen kapali/ag erisimi yok/kimlik dogrulama sistematik fail gibi durumlarda worker’in agi ve sunuculari "hammer" etmesini engellemek.
+- Amac: WinRM tamamen kapali/ag erisimi yok/kimlik dogrulama sistematik fail gibi durumlarda worker'in agi ve sunuculari "hammer" etmesini engellemek.
+- Loglar artik baglanti tesisi icin daha fazla tanisal bilgi yazar:
+  - `Transport`, `ConnectTimeoutSeconds`, `OverallTimeoutSeconds`
+  - kisa `ErrorSummary`
+  - firewall/network odakli `Hint` (5985/5986, DNS, route, ACL kontrolu)
 
 ## UI'ya Yansitma
 - Worker sonucu event publish eder.

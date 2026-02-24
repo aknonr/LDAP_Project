@@ -4,6 +4,7 @@ using Application.Messaging;
 using Application.Messaging.Commands;
 using Application.Messaging.Events;
 using Domain.Enums;
+using Infrastructure.Messaging;
 using Infrastructure.Persistence;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -151,16 +152,23 @@ public sealed class StartPasswordChangeJobConsumer : IConsumer<StartPasswordChan
         var updateEndpoint = await context.GetSendEndpoint(new Uri($"queue:{QueueNames.ServerUpdateCommands}"));
         foreach (var target in job.Targets)
         {
-            await updateEndpoint.Send(new UpdateServerResourcesCommand
-            {
-                JobId = job.Id,
-                TargetId = target.Id,
-                ServerName = target.ServerName,
-                IpAddress = target.IpAddress,
-                TargetAccount = message.TargetAccount,
-                EncryptedPassword = message.EncryptedNewPassword,
-                CorrelationId = message.CorrelationId
-            }, context.CancellationToken);
+            await updateEndpoint.Send(
+                new UpdateServerResourcesCommand
+                {
+                    JobId = job.Id,
+                    TargetId = target.Id,
+                    ServerName = target.ServerName,
+                    IpAddress = target.IpAddress,
+                    TargetAccount = message.TargetAccount,
+                    EncryptedPassword = message.EncryptedNewPassword,
+                    CorrelationId = message.CorrelationId
+                },
+                sendContext =>
+                {
+                    // Ayni target icin tekrar dispatch edilse bile inbox dedupe devreye girebilir.
+                    sendContext.MessageId = DeterministicMessageIdFactory.ForUpdate(job.Id, target.Id);
+                },
+                context.CancellationToken);
         }
 
         await context.Publish(new JobProgressEvent
@@ -193,4 +201,3 @@ public sealed class StartPasswordChangeJobConsumer : IConsumer<StartPasswordChan
         }
     }
 }
-

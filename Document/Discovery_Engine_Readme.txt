@@ -1,5 +1,11 @@
 # Discovery Engine (PKG-007)
 
+## State Snapshot (2026-02-23)
+- Snapshot date: `2026-02-23`
+- Current phase: `PKG-019 (in_progress_partial)`
+- Last stable completion: `PKG-018`
+- Next targets: `PKG-019 close -> PKG-014 -> PKG-020 -> PKG-021 -> PKG-022 -> PKG-023`
+
 ## Amac
 - Sunuculardaki servis hesabi kullanimlarini tespit etmek ve `JobResource` tablosuna yazmak.
 

@@ -4,7 +4,11 @@ Bu klasor EF Core migration dosyalarini barindirir.
 
 ## Mevcut Migration
 - `AddServerInventoryExternalId` (ilk kurulum + ServerInventories `ExternalId` ve index)
-- `AddMassTransitOutbox` (MassTransit EF outbox/inbox tabloları: `InboxState`, `OutboxMessage`, `OutboxState`)
+- `AddMassTransitOutbox` (MassTransit EF outbox/inbox tablolari: `InboxState`, `OutboxMessage`, `OutboxState`)
+- `AddJobRequestedBySubject` (`Jobs.RequestedBySubject` kolonu ve yetkilendirme hardening destegi)
+- `AddJobTargetAndJobResourceUniqueness` (multi-instance duplicate korumasi icin unique indexler)
+  - `JobTargets(JobId, ServerName)` unique
+  - `JobResources(JobTargetId, ResourceType, ResourceName, ResourcePath)` unique
 
 ## Yeni Migration Olusturma
 1. (Opsiyonel) Tooling icin gercek connection string vermek istersen:

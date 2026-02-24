@@ -1,740 +1,1435 @@
 {
-  "meta": {
-    "documentType": "agent_prompt_packages",
-    "projectName": "EnterpriseADPasswordManager",
-    "version": "1.4.0",
-    "language": "tr-TR",
-    "executionMode": "sequential_with_dependencies",
-    "targetStack": {
-      "language": "C#",
-      "frameworkNow": ".NET 8.0.23",
-      "frameworkFuture": ".NET 10",
-      "db": "SQL Server 2022",
-      "architecture": "Onion Architecture + Worker Services + Event Driven",
-      "mq": "RabbitMQ + MassTransit",
-      "realtime": "SignalR"
-    },
-    "globalConstraints": [
-      "Reset yok; sadece change (oldPassword+newPassword).",
-      "Disaridan erisim yok; sadece ic ag + internal DNS.",
-      "DB ve loglarda sifre yok; sadece memory.",
-      "MQ mesajlarinda sifre plain olmaz; AES-GCM ile encrypt edilir.",
-      "LDAP sadece LDAPS 636.",
-      "UI ve API ayri deploy edilebilir.",
-      "Event-driven zorunlu; DB polling yok.",
-      "Concurrency kontrollu: PrefetchCount ve UseConcurrencyLimit configten."
-    ],
-    "outputConventions": {
-      "artifactNaming": {
-        "docs": "docs/<topic>.md",
-        "diagrams": "docs/diagrams/<name>.(png|svg|mmd)",
-        "code": "src/<layer>/<project>",
-        "tests": "tests/<project>.Tests"
-      },
-      "definitionOfDone": [
-        "Build passes",
-        "Unit tests pass",
-        "No secrets or passwords in logs",
-        "Deliverables produced and linked in PR description"
-      ]
-    }
-  },
-  "decisions": {
-    "auth": "OIDC login + group allowlist + DB role mapping",
-    "rabbitmq": "internal TLS, vhost per environment",
-    "workerRuntime": "Windows Service",
-    "uiApiSeparation": "separate deploy, backend-first",
-    "thApi": "enabled",
-    "secretHandling": "MQ payload encrypted (AES-GCM) with shared key",
-    "discoveryTransport": "WinRM/PowerShell (CIM/WMI), plugin based"
-  },
-  "packages": [
-    {
-      "id": "PKG-000",
-      "title": "Infrastructure Prereqs (RabbitMQ + TLS + Accounts)",
-      "dependsOn": [],
-      "inputs": {
-        "environments": ["dev", "test", "prod"],
-        "rabbitmq": {
-          "cluster": "single_or_ha",
-          "tlsPort": 5671,
-          "vhosts": ["adpm-dev", "adpm-test", "adpm-prod"],
-          "queues": [
-            "server.discovery.commands",
-            "server.update.commands",
-            "server.verify.commands",
-            "server.result.events"
-          ]
-        },
-        "serviceAccounts": ["adpm-api", "adpm-worker"]
-      },
-      "prompt": "Ic agda RabbitMQ kurulumu, TLS sertifika, vhost/permission ve firewall kurallarini dokumante et. Runbook ekle.",
-      "expectedOutputs": [
-        {
-          "type": "markdown",
-          "pathHints": ["docs/infra-prereqs.md"],
-          "acceptance": "TLS, vhost, user/perm, firewall net tanimli."
-        }
-      ],
-      "verificationSteps": [
-        "TLS handshake testi",
-        "API/Worker subnet erisim testi"
-      ]
-    },
-    {
-      "id": "PKG-001",
-      "title": "Backend Solution Bootstrap (Onion Architecture)",
-      "dependsOn": ["PKG-000"],
-      "inputs": {
-        "repoMode": "monorepo",
-        "backendRepoName": "adpm-backend",
-        "layers": ["Domain", "Application", "Infrastructure", "API", "Worker"],
-        "framework": ".NET 8"
-      },
-      "prompt": "Onion Architecture backend solution kur. Katman bagimliliklarini dogru ayarla. Baseline test projesi ekle. README ve docs/architecture-overview.md yaz.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Domain", "src/Application", "src/Infrastructure", "src/API", "src/Worker"],
-          "acceptance": "Solution build olur, en az 1 test calisir."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["README.md", "docs/architecture-overview.md"],
-          "acceptance": "Katmanlar ve bagimliliklar net."
-        }
-      ],
-      "verificationSteps": ["dotnet restore", "dotnet build", "dotnet test"]
-    },
-    {
-      "id": "PKG-002",
-      "title": "Config & Secrets Strategy",
-      "dependsOn": ["PKG-001"],
-      "inputs": {
-        "environments": ["dev", "test", "prod"],
-        "secretsStoreOptions": ["Windows Credential Manager", "Vault (kurum standardi)"],
-        "payloadProtection": "AES-GCM (shared key, keyId)",
-        "loggingTargets": ["file", "eventlog", "siem-forward (opsiyon)"]
-      },
-      "prompt": "Ortam bazli config ve secrets yonetimi tanimla. AES-GCM payload encryption ve log redaction politikasini yaz. appsettings.* iskeleti ve Serilog konfig ekle.",
-      "expectedOutputs": [
-        {
-          "type": "markdown",
-          "pathHints": ["docs/config-and-secrets.md", "docs/logging-redaction-policy.md"],
-          "acceptance": "Sifreler config/log/MQ'da plain degil."
-        },
-        {
-          "type": "code",
-          "pathHints": ["src/API/appsettings*.json", "src/Worker/appsettings*.json"],
-          "acceptance": "Ortam ayrimi ve logging temel config mevcut."
-        }
-      ],
-      "verificationSteps": [
-        "Config dosyalarinda secret placeholder var mi?",
-        "Loglarda sifre maskesi zorunlu mu?"
-      ]
-    },
-    {
-      "id": "PKG-003",
-      "title": "SQL Server Schema + EF Core Models & Migrations",
-      "dependsOn": ["PKG-001"],
-      "inputs": {
-        "entities": [
-          "AppUser", "Role", "AppUserRole",
-          "Job", "JobTarget", "JobResource",
-          "ServerInventory", "ServerGroup",
-          "AuditLog", "OutboxMessage"
-        ],
-        "enums": {
-          "JobType": ["DISCOVERY", "PASSWORD_CHANGE", "VERIFY"],
-          "JobStatus": ["PENDING", "IN_PROGRESS", "SUCCESS", "FAILED", "CANCELLED"],
-          "TargetStatus": ["PENDING", "IN_PROGRESS", "SUCCESS", "FAILED", "SKIPPED"],
-          "ResourceType": [
-            "Service", "ScheduledTask", "IISAppPool",
-            "IISSite", "IISWebApp", "IISVirtualDir",
-            "COMPlus", "UserRight"
-          ]
-        }
-      },
-      "prompt": "Domain entity ve enumlari tanimla. Infrastructure DbContext + Fluent API yaz. Migrations uret. docs/data-model.md + mermaid ER ekle.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Domain/Entities", "src/Infrastructure/Persistence", "src/Infrastructure/Migrations"],
-          "acceptance": "Migrations ile DB kurulabiliyor."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/data-model.md"],
-          "acceptance": "ER diagram + tablo aciklamalari var."
-        }
-      ],
-      "verificationSteps": ["dotnet ef migrations add InitialCreate", "dotnet ef database update"]
-    },
-    {
-      "id": "PKG-004",
-      "title": "OIDC Login + Group Allowlist + RBAC",
-      "dependsOn": ["PKG-003", "PKG-002"],
-      "inputs": {
-        "oidc": {
-          "issuer": "<OIDC_ISSUER_URL>",
-          "clientId": "<CLIENT_ID>",
-          "audience": "<AUDIENCE>",
-          "groupClaim": "<GROUP_CLAIM>",
-          "allowedGroups": ["<ALLOWED_GROUP_ID_OR_NAME>"]
-        },
-        "roles": ["Admin", "Operator", "Viewer"]
-      },
-      "prompt": "OIDC login akisini uygula. groupClaim icinde allowedGroups yoksa 403. AppUser/Role ile RBAC uygula. docs/auth-rbac.md ekle.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/API/Auth", "src/API/Program.cs", "src/Application/Services/Rbac"],
-          "acceptance": "Login ve role-based authorization calisir."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/auth-rbac.md"],
-          "acceptance": "OIDC + grup kontrolu akisi net."
-        }
-      ],
-      "verificationSteps": ["401/403 senaryolari"]
-    },
-    {
-      "id": "PKG-005",
-      "title": "TH API Inventory Sync",
-      "dependsOn": ["PKG-003", "PKG-002"],
-      "inputs": {
-        "thApi": {
-          "inventoryFields": ["id", "createdDate", "hostname", "ip", "groupId", "groupName"]
-        },
-        "syncMode": "scheduled_job",
-        "diffRule": "createdDate or updatedDate"
-      },
-      "prompt": "TH API client yaz. ServerGroup ve ServerInventory tablolarini guncelle. docs/th-api-inventory.md olustur.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Infrastructure/ThApi", "src/Worker/Jobs/InventorySyncJob.cs"],
-          "acceptance": "Inventory sync calisiyor."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/th-api-inventory.md"],
-          "acceptance": "Akis ve hata senaryolari var."
-        }
-      ],
-      "verificationSteps": ["Inventory sync ve diff testi"]
-    },
-    {
-      "id": "PKG-006",
-      "title": "AD Password Change Service (LDAPS 636)",
-      "dependsOn": ["PKG-004", "PKG-002"],
-      "inputs": {
-        "library": "System.DirectoryServices.Protocols",
-        "changeMode": "oldPassword+newPassword",
-        "errorCodes": [
-          "INVALID_CREDENTIALS", "POLICY_VIOLATION", "ACCESS_DENIED",
-          "USER_NOT_FOUND", "LDAPS_CONNECT_FAILED", "TIMEOUT", "UNKNOWN"
-        ]
-      },
-      "prompt": "LDAPS ile change password servisi yaz. TLS ve sertifika dogrulama configurable olsun. ErrorCode mapping yap.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Infrastructure/Directory/AdPasswordChangeService.cs", "src/Application/Models/OperationResult.cs"],
-          "acceptance": "ErrorCode standard donuyor."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/ad-ldaps-change.md"],
-          "acceptance": "Hata map tablosu var."
-        }
-      ],
-      "verificationSteps": ["Success/invalid/policy testleri"]
-    },
-    {
-      "id": "PKG-007",
-      "title": "Resource Discovery Engine",
-      "dependsOn": ["PKG-003"],
-      "inputs": {
-        "discoveryMethods": ["WinRM/PowerShell", "WMI/CIM"],
-        "resourceTypes": [
-          "Service", "ScheduledTask", "IISAppPool",
-          "IISSite", "IISWebApp", "IISVirtualDir",
-          "COMPlus", "UserRight"
-        ],
-        "defaultConcurrency": 10
-      },
-      "prompt": "Service account kullanimini sunucularda tarayan engine tasarla. Plugin tabanli olsun. Sonuclari JobResource ve JobTargeta yaz.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Application/Interfaces/IDiscoveryStrategy.cs", "src/Infrastructure/Discovery/*"],
-          "acceptance": "Discovery job 2000+ hedefte stabil."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/discovery-engine.md"],
-          "acceptance": "Kaynak tipleri ve hata kodlari net."
-        }
-      ],
-      "verificationSteps": ["2000 hedef dry-run", "Concurrency ayari testi"]
-    },
-    {
-      "id": "PKG-008",
-      "title": "Update Engine (Apply New Password to Resources)",
-      "dependsOn": ["PKG-007", "PKG-006"],
-      "inputs": {
-        "updateStrategies": [
-          "Service", "ScheduledTask", "IISAppPool",
-          "IISSite", "IISWebApp", "IISVirtualDir", "COMPlus"
-        ],
-        "errorCodes": [
-          "RESOURCE_NOT_FOUND", "ACCESS_DENIED",
-          "WINRM_CONNECT_FAILED", "TIMEOUT", "UNKNOWN"
-        ],
-        "idempotency": true
-      },
-      "prompt": "Her kaynak tipi icin update stratejisi yaz. New password sadece memoryde tutulacak. Idempotent olacak sekilde uygula.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Application/Interfaces/IUpdateStrategy.cs", "src/Infrastructure/Update/*"],
-          "acceptance": "Update job target bazinda status donuyor."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/update-engine.md"],
-          "acceptance": "Kaynak bazli update akisi net."
-        }
-      ],
-      "verificationSteps": ["Basarili/basarisiz update senaryolari"]
-    },
-    {
-      "id": "PKG-009",
-      "title": "RabbitMQ Topology + Message Contracts",
-      "dependsOn": ["PKG-002", "PKG-003"],
-      "inputs": {
-        "commands": [
-          "DiscoverServerUsageCommand",
-          "UpdateServerResourcesCommand",
-          "VerifyServerCommand"
-        ],
-        "events": [
-          "ServerUsageResultEvent",
-          "ServerUpdateResultEvent",
-          "JobProgressEvent"
-        ],
-        "payloadSchema": {
-          "encryptedPassword": {
-            "ciphertext": "base64",
-            "nonce": "base64",
-            "tag": "base64",
-            "keyId": "string"
-          }
-        },
-        "retryPolicy": { "attempts": 3, "intervalMs": 5000 }
-      },
-      "prompt": "MassTransit ile RabbitMQ topology kur. Command/event contractlarini yaz. AES-GCM encrypted payload kullan.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Application/Messaging", "src/Infrastructure/Messaging"],
-          "acceptance": "Publish/consume calisiyor."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/messaging-topology.md"],
-          "acceptance": "Exchange/queue/routing net."
-        }
-      ],
-      "verificationSteps": ["Publish->Consume testi", "DLQ testi"]
-    },
-    {
-      "id": "PKG-010",
-      "title": "Worker Consumers + Concurrency + Retry",
-      "dependsOn": ["PKG-009", "PKG-008"],
-      "inputs": {
-        "prefetchCount": 50,
-        "concurrencyLimit": 50,
-        "timeouts": { "connectSeconds": 5, "overallSeconds": 60 }
-      },
-      "prompt": "Worker consumerlari yaz. Prefetch ve concurrency limitlerini configten oku. Retry ve timeout uygula.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Worker/Consumers", "src/Worker/Program.cs"],
-          "acceptance": "Yuk artinca worker sayisi artirilabiliyor."
-        }
-      ],
-      "verificationSteps": ["Load testi", "Timeout/retry davranisi"]
-    },
-    {
-      "id": "PKG-011",
-      "title": "API Endpoints (Auth + Job Create/Status)",
-      "dependsOn": ["PKG-004", "PKG-009"],
-      "inputs": {
-        "endpoints": [
-          "POST /auth/login",
-          "POST /jobs/discovery",
-          "POST /jobs/password-change",
-          "GET /jobs/{id}",
-          "GET /jobs/{id}/targets"
-        ],
-        "validationRules": [
-          "passwords are never logged",
-          "serverGroup required",
-          "role: Operator/Admin can start jobs",
-          "group allowlist enforced"
-        ]
-      },
-      "prompt": "Job create ve izleme endpointlerini uygula. DB kaydi olustur, MQ komutlarini publish et. RBAC ve validation uygula.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/API/Controllers/JobsController.cs", "src/Application/UseCases/*"],
-          "acceptance": "Job create ve status calisiyor."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/api-contract.md"],
-          "acceptance": "Request/response ornekleri var."
-        }
-      ],
-      "verificationSteps": ["Operator 200, Viewer 403", "Target count dogru"]
-    },
-    {
-      "id": "PKG-012",
-      "title": "SignalR Live Updates",
-      "dependsOn": ["PKG-011", "PKG-010"],
-      "inputs": {
-        "hubPath": "/hubs/jobs",
-        "events": ["jobUpdated", "targetUpdated"],
-        "clientScale": { "targets": 2000, "recommendations": ["paging", "virtualization"] }
-      },
-      "prompt": "SignalR hub ekle. Worker sonucu eventleri API uzerinden SignalR ile publish et.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/API/Hubs/JobsHub.cs", "src/API/Consumers/ResultEventConsumer.cs"],
-          "acceptance": "UI canli guncelleme goruyor."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/realtime-updates.md"],
-          "acceptance": "Performans notlari var."
-        }
-      ],
-      "verificationSteps": ["TargetUpdated event akisi"]
-    },
-    {
-      "id": "PKG-013",
-      "title": "Observability + Audit Trail + Security Checklist",
-      "dependsOn": ["PKG-002", "PKG-010", "PKG-011"],
-      "inputs": {
-        "logging": ["Serilog.AspNetCore", "Serilog.Sinks.File", "Serilog.Sinks.EventLog"],
-        "auditFields": ["who", "when", "ticketRef", "targetAccount", "serverGroup", "resultSummary"],
-        "redaction": ["oldPassword", "newPassword", "tokens", "secrets"]
-      },
-      "prompt": "Structured logging, correlationId ve audit trail standartlarini kur. Redaction zorunlu. docs/audit-and-logging.md + docs/security-checklist.md ekle.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/API/Logging", "src/Worker/Logging"],
-          "acceptance": "Sifre loglanmiyor; correlationId ile izlenebilir."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/audit-and-logging.md", "docs/security-checklist.md"],
-          "acceptance": "Audit alanlari ve checklist net."
-        }
-      ],
-      "verificationSteps": ["Loglarda sifre yok", "Audit sorgulari calisiyor"]
-    },
-    {
-      "id": "PKG-014",
-      "title": "UI (Phase 2)",
-      "dependsOn": ["PKG-011", "PKG-012", "PKG-015", "PKG-016", "PKG-018"],
-      "inputs": {
-        "uiStack": "TBD (React or Blazor)",
-        "pages": ["Dashboard", "Discovery", "Password Change Form", "Job Detail", "Unauthorized"],
-        "splitTabs": ["Basarili", "Basarisiz"],
-        "columns": ["Server", "Status", "ResourceType", "ErrorCode", "ErrorMessage", "UpdatedAt"]
-      },
-      "prompt": "UI ekranlarini uygula. 2000+ hedef icin paging/virtualization ekle. Role bazli UI guard kur.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/UI"],
-          "acceptance": "Basarili/basarisiz ayrimi ve detay gorunuyor."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/ui-flow.md"],
-          "acceptance": "Kullanici akisi net."
-        }
-      ],
-      "verificationSteps": ["Job create -> detail auto open", "Viewer teknik detay gorememeli"]
-    },
-    {
-      "id": "PKG-015",
-      "title": "UserRight Discovery Strategy (Real Implementation)",
-      "dependsOn": ["PKG-007"],
-      "inputs": {
-        "discoveryTransport": "WinRM/PowerShell",
-        "resourceType": "UserRight",
-        "outputShape": {
-          "resourceId": "string (stable key)",
-          "displayName": "string",
-          "details": {
-            "rightName": "string",
-            "account": "string",
-            "scope": "string"
-          }
-        },
-        "errorCodes": ["WINRM_CONNECT_FAILED", "ACCESS_DENIED", "TIMEOUT", "UNKNOWN"]
-      },
-      "prompt": "UserRight discovery stratejisini stub'dan cikarip gercek implementasyon yap. WinRM/PowerShell ile user right atamalarini topla, JSON output standardina uydur ve JobResource olarak kaydet. docs/discovery-engine.md altina UserRight notlarini ekle.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Infrastructure/Discovery/Strategies/UserRightDiscoveryStrategy.cs"],
-          "acceptance": "UserRight discovery sonucu uretilir ve hata kodlari standard doner."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/discovery-engine.md"],
-          "acceptance": "UserRight discovery yaklasimi ve limitler dokumante."
-        }
-      ],
-      "verificationSteps": ["UserRight discovery dry-run", "AccessDenied/timeout senaryolari"]
-    },
-    {
-      "id": "PKG-016",
-      "title": "Password-Change Job Orchestration (AD Change + Update + Verify)",
-      "dependsOn": ["PKG-006", "PKG-008", "PKG-010", "PKG-011"],
-      "inputs": {
-        "stateMachine": ["AD_CHANGE", "UPDATE_RESOURCES", "VERIFY"],
-        "constraints": [
-          "DB/log/MQ plain sifre yok",
-          "Rollback zor; partial failure raporlanmali",
-          "AD replication gecikmesi olabilir (retry window)"
-        ],
-        "errorCodes": [
-          "INVALID_CREDENTIALS", "POLICY_VIOLATION", "ACCESS_DENIED",
-          "USER_NOT_FOUND", "LDAPS_CONNECT_FAILED", "TIMEOUT", "UNKNOWN"
-        ]
-      },
-      "prompt": "POST /jobs/password-change akisini tek job state machine haline getir: AD (LDAPS) change (old+new) -> update -> verify. Sifreler sadece memoryde kalacak; MQ payload AES-GCM sifreli. Partial failure ve retry davranisini dokumante et.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Application/UseCases/Jobs/CreatePasswordChangeJobUseCase.cs", "src/Worker/Consumers/UpdateServerResourcesConsumer.cs", "src/Worker/Consumers/VerifyServerConsumer.cs"],
-          "acceptance": "AD change basarisizsa update/verify tetiklenmez; status/event akisi stabil."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/ad-ldaps-change.md", "docs/update-engine.md", "docs/verify-flow.md"],
-          "acceptance": "Orkestrasyon akisi ve riskler (partial failure, replication) net."
-        }
-      ],
-      "verificationSteps": ["Success/policy/invalid testleri", "Partial failure senaryosu (1 target fail)", "Verify zinciri"]
-    },
-    {
-      "id": "PKG-017",
-      "title": "Resilience Hardening (DLQ + Circuit Breaker/Kill Switch)",
-      "dependsOn": ["PKG-009", "PKG-010", "PKG-013"],
-      "inputs": {
-        "dlq": true,
-        "circuitBreaker": { "enabled": true, "windowSeconds": 60, "failureThreshold": 0.5 },
-        "poisonMessagePolicy": "retry-limited then DLQ",
-        "runbook": true
-      },
-      "prompt": "Poison message ve sistematik remote fail durumlari icin hardening ekle: DLQ politikasi, circuit-breaker/kill-switch ve operasyon runbook. docs/reliability-and-error-handling.md guncelle.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Infrastructure/Messaging", "src/Worker/Consumers"],
-          "acceptance": "Retry limiti asildiginda mesaj DLQ'ya gider; worker sistematik fail'de kendini frenler."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/reliability-and-error-handling.md"],
-          "acceptance": "DLQ/circuit-breaker davranisi ve operasyon adimlari net."
-        }
-      ],
-      "verificationSteps": ["Poison message testi", "Kill-switch davranisi", "DLQ consume/runbook kontrolu"]
-    },
-    {
-      "id": "PKG-018",
-      "title": "Authorization Hardening (DB Allowlist + Job/Hub AuthZ)",
-      "dependsOn": ["PKG-004", "PKG-011", "PKG-012"],
-      "inputs": {
-        "dbAllowlist": { "mustExist": true, "requireActive": true },
-        "jobAuthorization": "jobId bazli erisim (serverGroup/owner)",
-        "signalrAuthorization": "job subscribe authz (opsiyonel)"
-      },
-      "prompt": "Kurum gereksinimine gore authorization hardening yap: DB'de kayitli ve aktif olmayan kullanici 403 alir. JobId bazli erisim kontrolu ekle. SignalR hub subscribe authz kurallarini tanimla. docs/authz-hardening.md olustur.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/API/Auth", "src/API/Hubs", "src/Application/Services/Rbac"],
-          "acceptance": "DB allowlist enforced; jobId bazli 403 senaryolari calisir."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/authz-hardening.md"],
-          "acceptance": "Policy/handler kurallari dokumante."
-        }
-      ],
-      "verificationSteps": ["DB'de user yok -> 403", "IsActive=false -> 403", "JobId access denied -> 403"]
-    },
-    {
-      "id": "PKG-019",
-      "title": "User & Role Management API (Soft Delete) + Audit Reporting",
-      "dependsOn": ["PKG-018", "PKG-013"],
-      "inputs": {
-        "softDelete": "IsActive=false (physical delete yok)",
-        "adminRoles": ["Admin", "SuperAdmin"],
-        "audit": { "who": true, "when": true, "ticketRef": true, "changes": true }
-      },
-      "prompt": "Admin/SuperAdmin icin user ve rol yonetimi endpointlerini ekle: user ekle, pasife al, rol ata/kaldir. Physical delete yok. Audit loglarda bu islemleri de kaydet. docs/user-management.md + docs/audit-and-logging.md guncelle.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/API/Controllers", "src/Application/UseCases", "src/Infrastructure/Persistence"],
-          "acceptance": "User/role yonetimi calisir; audit kaydi olusur; silme yerine pasif edilir."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/user-management.md", "docs/audit-and-logging.md"],
-          "acceptance": "User lifecycle ve audit alanlari net."
-        }
-      ],
-      "verificationSteps": ["User add/disable", "Role assign/remove", "Audit sorgusu"]
-    },
-    {
-      "id": "PKG-020",
-      "title": "Permission Model (Fine-Grained Authorization)",
-      "dependsOn": ["PKG-019"],
-      "inputs": {
-        "tables": ["Permission", "RolePermission"],
-        "policies": ["policy-based authorization"],
-        "migration": true
-      },
-      "prompt": "Role disinda ince yetkiler icin permission modeli ekle (Permission + RolePermission). Policy-based authorization ile endpoint/hub yetkilerini tanimla. docs/permissions-model.md olustur.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Domain/Entities", "src/Infrastructure/Persistence", "src/API/Auth"],
-          "acceptance": "Permission tabanli yetkilendirme calisir ve migration ile DB kurulabilir."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/permissions-model.md"],
-          "acceptance": "Permission modeli ve policy haritasi dokumante."
-        }
-      ],
-      "verificationSteps": ["Policy senaryolari", "Migration apply"]
-    },
-    {
-      "id": "PKG-021",
-      "title": "Observability v2 (OpenTelemetry + HealthChecks + Rate Limiting)",
-      "dependsOn": ["PKG-013"],
-      "inputs": {
-        "otel": { "traces": true, "metrics": true },
-        "healthChecks": ["db", "rabbitmq", "ldap"],
-        "rateLimiting": true
-      },
-      "prompt": "Kurumsal operasyon icin observability genislet: OpenTelemetry trace/metric, healthcheck endpointleri, API rate limiting ve daha guclu security headers. docs/observability.md olustur.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/API/Program.cs", "src/Worker/Program.cs", "src/API/Observability"],
-          "acceptance": "Healthcheck + OTel export + rate limiting calisir."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/observability.md"],
-          "acceptance": "Trace/metric/healthcheck kapsam ve konfigurasyon net."
-        }
-      ],
-      "verificationSteps": ["Health endpoint", "OTel export smoke test", "Rate limit testi"]
-    },
-    {
-      "id": "PKG-022",
-      "title": "SignalR Scale-Out (Backplane) + Deployment Guide",
-      "dependsOn": ["PKG-012", "PKG-014"],
-      "inputs": {
-        "scaleOut": "Redis backplane (opsiyonel)",
-        "lb": "sticky-session or backplane",
-        "timeouts": ["websocket idle timeout", "proxy limits"]
-      },
-      "prompt": "API scale-out senaryosu icin SignalR backplane (Redis) opsiyonunu ekle ve deploy guide yaz. Sticky session vs backplane kararlarini dokumante et.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/API/Program.cs"],
-          "acceptance": "Backplane aktiflestirilebiliyor (config ile)."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/signalr-scaleout.md"],
-          "acceptance": "LB/backplane/timeouts notlari net."
-        }
-      ],
-      "verificationSteps": ["Multi-instance smoke test (opsiyonel)", "Reconnect/resync senaryosu"]
-    },
-    {
-      "id": "PKG-023",
-      "title": "Key Rotation + Secret Management Runbooks",
-      "dependsOn": ["PKG-002", "PKG-009"],
-      "inputs": {
-        "payloadKeys": ["KeyId rotation", "multi-key decrypt"],
-        "tls": ["cert rotation runbook"],
-        "secretsStore": ["Windows Credential Manager", "Vault"]
-      },
-      "prompt": "AES-GCM key rotation (KeyId) ve secret/certificate rotation icin runbook ve (gerekirse) multi-key decrypt destegi ekle. docs/ops-runbooks.md olustur.",
-      "expectedOutputs": [
-        {
-          "type": "code",
-          "pathHints": ["src/Infrastructure/Security/AesGcmPayloadProtector.cs"],
-          "acceptance": "KeyId ile decrypt edilebilir; rotation senaryosu desteklenir veya dokumante edilir."
-        },
-        {
-          "type": "markdown",
-          "pathHints": ["docs/ops-runbooks.md"],
-          "acceptance": "Key/cert/secret rotation adimlari ve guvenlik notlari net."
-        }
-      ],
-      "verificationSteps": ["KeyId rotation smoke test (2 key)", "Docs review"]
-    }
-  ],
-  "executionOrder": [
-    "PKG-000",
-    "PKG-001",
-    "PKG-002",
-    "PKG-003",
-    "PKG-004",
-    "PKG-005",
-    "PKG-006",
-    "PKG-007",
-    "PKG-008",
-    "PKG-009",
-    "PKG-010",
-    "PKG-011",
-    "PKG-012",
-    "PKG-013",
-    "PKG-015",
-    "PKG-016",
-    "PKG-017",
-    "PKG-018",
-    "PKG-019",
-    "PKG-014",
-    "PKG-020",
-    "PKG-021",
-    "PKG-022",
-    "PKG-023"
-  ]
+    "meta":  {
+                 "documentType":  "agent_prompt_packages",
+                 "projectName":  "EnterpriseADPasswordManager",
+                 "version":  "1.4.0",
+                 "language":  "tr-TR",
+                 "executionMode":  "sequential_with_dependencies",
+                 "targetStack":  {
+                                     "language":  "C#",
+                                     "frameworkNow":  ".NET 8.0.23",
+                                     "frameworkFuture":  ".NET 10",
+                                     "db":  "SQL Server 2022",
+                                     "architecture":  "Onion Architecture + Worker Services + Event Driven",
+                                     "mq":  "RabbitMQ + MassTransit",
+                                     "realtime":  "SignalR"
+                                 },
+                 "globalConstraints":  [
+                                           "Reset yok; sadece change (oldPassword+newPassword).",
+                                           "Disaridan erisim yok; sadece ic ag + internal DNS.",
+                                           "DB ve loglarda sifre yok; sadece memory.",
+                                           "MQ mesajlarinda sifre plain olmaz; AES-GCM ile encrypt edilir.",
+                                           "LDAP sadece LDAPS 636.",
+                                           "UI ve API ayri deploy edilebilir.",
+                                           "Event-driven zorunlu; DB polling yok.",
+                                           "Concurrency kontrollu: PrefetchCount ve UseConcurrencyLimit configten."
+                                       ],
+                 "outputConventions":  {
+                                           "artifactNaming":  {
+                                                                  "docs":  "docs/\u003ctopic\u003e.md",
+                                                                  "diagrams":  "docs/diagrams/\u003cname\u003e.(png|svg|mmd)",
+                                                                  "code":  "src/\u003clayer\u003e/\u003cproject\u003e",
+                                                                  "tests":  "tests/\u003cproject\u003e.Tests"
+                                                              },
+                                           "definitionOfDone":  [
+                                                                    "Build passes",
+                                                                    "Unit tests pass",
+                                                                    "No secrets or passwords in logs",
+                                                                    "Deliverables produced and linked in PR description"
+                                                                ]
+                                       }
+             },
+    "decisions":  {
+                      "auth":  "OIDC login + group allowlist + DB role mapping",
+                      "rabbitmq":  "internal TLS, vhost per environment",
+                      "workerRuntime":  "Windows Service",
+                      "uiApiSeparation":  "separate deploy, backend-first",
+                      "thApi":  "enabled",
+                      "secretHandling":  "MQ payload encrypted (AES-GCM) with shared key",
+                      "discoveryTransport":  "WinRM/PowerShell (CIM/WMI), plugin based"
+                  },
+    "packages":  [
+                     {
+                         "id":  "PKG-000",
+                         "title":  "Infrastructure Prereqs (RabbitMQ + TLS + Accounts)",
+                         "dependsOn":  [
+
+                                       ],
+                         "inputs":  {
+                                        "environments":  [
+                                                             "dev",
+                                                             "test",
+                                                             "prod"
+                                                         ],
+                                        "rabbitmq":  {
+                                                         "cluster":  "single_or_ha",
+                                                         "tlsPort":  5671,
+                                                         "vhosts":  [
+                                                                        "adpm-dev",
+                                                                        "adpm-test",
+                                                                        "adpm-prod"
+                                                                    ],
+                                                         "queues":  [
+                                                                        "server.discovery.commands",
+                                                                        "server.update.commands",
+                                                                        "server.verify.commands",
+                                                                        "server.result.events"
+                                                                    ]
+                                                     },
+                                        "serviceAccounts":  [
+                                                                "adpm-api",
+                                                                "adpm-worker"
+                                                            ]
+                                    },
+                         "prompt":  "Ic agda RabbitMQ kurulumu, TLS sertifika, vhost/permission ve firewall kurallarini dokumante et. Runbook ekle.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/infra-prereqs.md"
+                                                                   ],
+                                                     "acceptance":  "TLS, vhost, user/perm, firewall net tanimli."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "TLS handshake testi",
+                                                   "API/Worker subnet erisim testi"
+                                               ],
+                         "state":  "external_or_repo_disi_prereq",
+                         "done":  [
+                                      "Roadmap ve configlerde TLS/vhost/use-quorum varsayimlari uygulanmis."
+                                  ],
+                         "open":  [
+                                      "Kurumsal runbook ve operasyonel firewall/vhost dokumanlarinin repo disi teyidi."
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-001",
+                         "title":  "Backend Solution Bootstrap (Onion Architecture)",
+                         "dependsOn":  [
+                                           "PKG-000"
+                                       ],
+                         "inputs":  {
+                                        "repoMode":  "monorepo",
+                                        "backendRepoName":  "adpm-backend",
+                                        "layers":  [
+                                                       "Domain",
+                                                       "Application",
+                                                       "Infrastructure",
+                                                       "API",
+                                                       "Worker"
+                                                   ],
+                                        "framework":  ".NET 8"
+                                    },
+                         "prompt":  "Onion Architecture backend solution kur. Katman bagimliliklarini dogru ayarla. Baseline test projesi ekle. README ve docs/architecture-overview.md yaz.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Domain",
+                                                                       "src/Application",
+                                                                       "src/Infrastructure",
+                                                                       "src/API",
+                                                                       "src/Worker"
+                                                                   ],
+                                                     "acceptance":  "Solution build olur, en az 1 test calisir."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "README.md",
+                                                                       "docs/architecture-overview.md"
+                                                                   ],
+                                                     "acceptance":  "Katmanlar ve bagimliliklar net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "dotnet restore",
+                                                   "dotnet build",
+                                                   "dotnet test"
+                                               ],
+                         "state":  "completed_inferred",
+                         "done":  [
+                                      "Domain/Application/Infrastructure/API/Worker katmanlari mevcut.",
+                                      "Solution ve test projeleri calisiyor."
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-002",
+                         "title":  "Config \u0026 Secrets Strategy",
+                         "dependsOn":  [
+                                           "PKG-001"
+                                       ],
+                         "inputs":  {
+                                        "environments":  [
+                                                             "dev",
+                                                             "test",
+                                                             "prod"
+                                                         ],
+                                        "secretsStoreOptions":  [
+                                                                    "Windows Credential Manager",
+                                                                    "Vault (kurum standardi)"
+                                                                ],
+                                        "payloadProtection":  "AES-GCM (shared key, keyId)",
+                                        "loggingTargets":  [
+                                                               "file",
+                                                               "eventlog",
+                                                               "siem-forward (opsiyon)"
+                                                           ]
+                                    },
+                         "prompt":  "Ortam bazli config ve secrets yonetimi tanimla. AES-GCM payload encryption ve log redaction politikasini yaz. appsettings.* iskeleti ve Serilog konfig ekle.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/config-and-secrets.md",
+                                                                       "docs/logging-redaction-policy.md"
+                                                                   ],
+                                                     "acceptance":  "Sifreler config/log/MQ\u0027da plain degil."
+                                                 },
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/API/appsettings*.json",
+                                                                       "src/Worker/appsettings*.json"
+                                                                   ],
+                                                     "acceptance":  "Ortam ayrimi ve logging temel config mevcut."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Config dosyalarinda secret placeholder var mi?",
+                                                   "Loglarda sifre maskesi zorunlu mu?"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "appsettings placeholder yapisi",
+                                      "AES-GCM payload config iskeleti",
+                                      "Serilog config",
+                                      "Secret redaction prensipleri dokumante"
+                                  ],
+                         "open":  [
+                                      "Vault/CredentialManager production entegrasyonu (hardening backlog)"
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-003",
+                         "title":  "SQL Server Schema + EF Core Models \u0026 Migrations",
+                         "dependsOn":  [
+                                           "PKG-001"
+                                       ],
+                         "inputs":  {
+                                        "entities":  [
+                                                         "AppUser",
+                                                         "Role",
+                                                         "AppUserRole",
+                                                         "Job",
+                                                         "JobTarget",
+                                                         "JobResource",
+                                                         "ServerInventory",
+                                                         "ServerGroup",
+                                                         "AuditLog",
+                                                         "OutboxMessage"
+                                                     ],
+                                        "enums":  {
+                                                      "JobType":  [
+                                                                      "DISCOVERY",
+                                                                      "PASSWORD_CHANGE",
+                                                                      "VERIFY"
+                                                                  ],
+                                                      "JobStatus":  [
+                                                                        "PENDING",
+                                                                        "IN_PROGRESS",
+                                                                        "SUCCESS",
+                                                                        "FAILED",
+                                                                        "CANCELLED"
+                                                                    ],
+                                                      "TargetStatus":  [
+                                                                           "PENDING",
+                                                                           "IN_PROGRESS",
+                                                                           "SUCCESS",
+                                                                           "FAILED",
+                                                                           "SKIPPED"
+                                                                       ],
+                                                      "ResourceType":  [
+                                                                           "Service",
+                                                                           "ScheduledTask",
+                                                                           "IISAppPool",
+                                                                           "IISSite",
+                                                                           "IISWebApp",
+                                                                           "IISVirtualDir",
+                                                                           "COMPlus",
+                                                                           "UserRight"
+                                                                       ]
+                                                  }
+                                    },
+                         "prompt":  "Domain entity ve enumlari tanimla. Infrastructure DbContext + Fluent API yaz. Migrations uret. docs/data-model.md + mermaid ER ekle.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Domain/Entities",
+                                                                       "src/Infrastructure/Persistence",
+                                                                       "src/Infrastructure/Migrations"
+                                                                   ],
+                                                     "acceptance":  "Migrations ile DB kurulabiliyor."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/data-model.md"
+                                                                   ],
+                                                     "acceptance":  "ER diagram + tablo aciklamalari var."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "dotnet ef migrations add InitialCreate",
+                                                   "dotnet ef database update"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "AdpmDbContext ve entity mapleri",
+                                      "Migrations: AddServerInventoryExternalId, AddMassTransitOutbox, AddJobRequestedBySubject"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-004",
+                         "title":  "OIDC Login + Group Allowlist + RBAC",
+                         "dependsOn":  [
+                                           "PKG-003",
+                                           "PKG-002"
+                                       ],
+                         "inputs":  {
+                                        "oidc":  {
+                                                     "issuer":  "\u003cOIDC_ISSUER_URL\u003e",
+                                                     "clientId":  "\u003cCLIENT_ID\u003e",
+                                                     "audience":  "\u003cAUDIENCE\u003e",
+                                                     "groupClaim":  "\u003cGROUP_CLAIM\u003e",
+                                                     "allowedGroups":  [
+                                                                           "\u003cALLOWED_GROUP_ID_OR_NAME\u003e"
+                                                                       ]
+                                                 },
+                                        "roles":  [
+                                                      "Admin",
+                                                      "Operator",
+                                                      "Viewer"
+                                                  ]
+                                    },
+                         "prompt":  "OIDC login akisini uygula. groupClaim icinde allowedGroups yoksa 403. AppUser/Role ile RBAC uygula. docs/auth-rbac.md ekle.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/API/Auth",
+                                                                       "src/API/Program.cs",
+                                                                       "src/Application/Services/Rbac"
+                                                                   ],
+                                                     "acceptance":  "Login ve role-based authorization calisir."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/auth-rbac.md"
+                                                                   ],
+                                                     "acceptance":  "OIDC + grup kontrolu akisi net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "401/403 senaryolari"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "OIDC JWT validation",
+                                      "Group allowlist handler",
+                                      "RBAC claims transform"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-005",
+                         "title":  "TH API Inventory Sync",
+                         "dependsOn":  [
+                                           "PKG-003",
+                                           "PKG-002"
+                                       ],
+                         "inputs":  {
+                                        "thApi":  {
+                                                      "inventoryFields":  [
+                                                                              "id",
+                                                                              "createdDate",
+                                                                              "hostname",
+                                                                              "ip",
+                                                                              "groupId",
+                                                                              "groupName"
+                                                                          ]
+                                                  },
+                                        "syncMode":  "scheduled_job",
+                                        "diffRule":  "createdDate or updatedDate"
+                                    },
+                         "prompt":  "TH API client yaz. ServerGroup ve ServerInventory tablolarini guncelle. docs/th-api-inventory.md olustur.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Infrastructure/ThApi",
+                                                                       "src/Worker/Jobs/InventorySyncJob.cs"
+                                                                   ],
+                                                     "acceptance":  "Inventory sync calisiyor."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/th-api-inventory.md"
+                                                                   ],
+                                                     "acceptance":  "Akis ve hata senaryolari var."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Inventory sync ve diff testi"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "ThApiClient + InventorySyncService",
+                                      "Worker InventorySyncJob",
+                                      "DiffRule bazli guncelleme"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-006",
+                         "title":  "AD Password Change Service (LDAPS 636)",
+                         "dependsOn":  [
+                                           "PKG-004",
+                                           "PKG-002"
+                                       ],
+                         "inputs":  {
+                                        "library":  "System.DirectoryServices.Protocols",
+                                        "changeMode":  "oldPassword+newPassword",
+                                        "errorCodes":  [
+                                                           "INVALID_CREDENTIALS",
+                                                           "POLICY_VIOLATION",
+                                                           "ACCESS_DENIED",
+                                                           "USER_NOT_FOUND",
+                                                           "LDAPS_CONNECT_FAILED",
+                                                           "TIMEOUT",
+                                                           "UNKNOWN"
+                                                       ]
+                                    },
+                         "prompt":  "LDAPS ile change password servisi yaz. TLS ve sertifika dogrulama configurable olsun. ErrorCode mapping yap.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Infrastructure/Directory/AdPasswordChangeService.cs",
+                                                                       "src/Application/Models/OperationResult.cs"
+                                                                   ],
+                                                     "acceptance":  "ErrorCode standard donuyor."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/ad-ldaps-change.md"
+                                                                   ],
+                                                     "acceptance":  "Hata map tablosu var."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Success/invalid/policy testleri"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "AdPasswordChangeService",
+                                      "DN/UPN/DOMAIN\\\\user cozumleme",
+                                      "ErrorCode mapping",
+                                      "Retry idempotency notu (old invalid + new bind basarili ise success)"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-007",
+                         "title":  "Resource Discovery Engine",
+                         "dependsOn":  [
+                                           "PKG-003"
+                                       ],
+                         "inputs":  {
+                                        "discoveryMethods":  [
+                                                                 "WinRM/PowerShell",
+                                                                 "WMI/CIM"
+                                                             ],
+                                        "resourceTypes":  [
+                                                              "Service",
+                                                              "ScheduledTask",
+                                                              "IISAppPool",
+                                                              "IISSite",
+                                                              "IISWebApp",
+                                                              "IISVirtualDir",
+                                                              "COMPlus",
+                                                              "UserRight"
+                                                          ],
+                                        "defaultConcurrency":  10
+                                    },
+                         "prompt":  "Service account kullanimini sunucularda tarayan engine tasarla. Plugin tabanli olsun. Sonuclari JobResource ve JobTargeta yaz.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Application/Interfaces/IDiscoveryStrategy.cs",
+                                                                       "src/Infrastructure/Discovery/*"
+                                                                   ],
+                                                     "acceptance":  "Discovery job 2000+ hedefte stabil."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/discovery-engine.md"
+                                                                   ],
+                                                     "acceptance":  "Kaynak tipleri ve hata kodlari net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "2000 hedef dry-run",
+                                                   "Concurrency ayari testi"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "DiscoveryEngine + strategy plug-in modeli",
+                                      "Service/ScheduledTask/IIS/COM+/UserRight stratejileri"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-008",
+                         "title":  "Update Engine (Apply New Password to Resources)",
+                         "dependsOn":  [
+                                           "PKG-007",
+                                           "PKG-006"
+                                       ],
+                         "inputs":  {
+                                        "updateStrategies":  [
+                                                                 "Service",
+                                                                 "ScheduledTask",
+                                                                 "IISAppPool",
+                                                                 "IISSite",
+                                                                 "IISWebApp",
+                                                                 "IISVirtualDir",
+                                                                 "COMPlus"
+                                                             ],
+                                        "errorCodes":  [
+                                                           "RESOURCE_NOT_FOUND",
+                                                           "ACCESS_DENIED",
+                                                           "WINRM_CONNECT_FAILED",
+                                                           "TIMEOUT",
+                                                           "UNKNOWN"
+                                                       ],
+                                        "idempotency":  true
+                                    },
+                         "prompt":  "Her kaynak tipi icin update stratejisi yaz. New password sadece memoryde tutulacak. Idempotent olacak sekilde uygula.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Application/Interfaces/IUpdateStrategy.cs",
+                                                                       "src/Infrastructure/Update/*"
+                                                                   ],
+                                                     "acceptance":  "Update job target bazinda status donuyor."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/update-engine.md"
+                                                                   ],
+                                                     "acceptance":  "Kaynak bazli update akisi net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Basarili/basarisiz update senaryolari"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "UpdateEngine + kaynak tipi stratejileri",
+                                      "Idempotent davranis",
+                                      "Target account match edilmezse no-op success"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-009",
+                         "title":  "RabbitMQ Topology + Message Contracts",
+                         "dependsOn":  [
+                                           "PKG-002",
+                                           "PKG-003"
+                                       ],
+                         "inputs":  {
+                                        "commands":  [
+                                                         "DiscoverServerUsageCommand",
+                                                         "UpdateServerResourcesCommand",
+                                                         "VerifyServerCommand"
+                                                     ],
+                                        "events":  [
+                                                       "ServerUsageResultEvent",
+                                                       "ServerUpdateResultEvent",
+                                                       "JobProgressEvent"
+                                                   ],
+                                        "payloadSchema":  {
+                                                              "encryptedPassword":  {
+                                                                                        "ciphertext":  "base64",
+                                                                                        "nonce":  "base64",
+                                                                                        "tag":  "base64",
+                                                                                        "keyId":  "string"
+                                                                                    }
+                                                          },
+                                        "retryPolicy":  {
+                                                            "attempts":  3,
+                                                            "intervalMs":  5000
+                                                        }
+                                    },
+                         "prompt":  "MassTransit ile RabbitMQ topology kur. Command/event contractlarini yaz. AES-GCM encrypted payload kullan.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Application/Messaging",
+                                                                       "src/Infrastructure/Messaging"
+                                                                   ],
+                                                     "acceptance":  "Publish/consume calisiyor."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/messaging-topology.md"
+                                                                   ],
+                                                     "acceptance":  "Exchange/queue/routing net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Publish-\u003eConsume testi",
+                                                   "DLQ testi"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "Queue topology",
+                                      "Command/Event contractlari",
+                                      "AES-GCM encrypted payload modeli"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-010",
+                         "title":  "Worker Consumers + Concurrency + Retry",
+                         "dependsOn":  [
+                                           "PKG-009",
+                                           "PKG-008"
+                                       ],
+                         "inputs":  {
+                                        "prefetchCount":  50,
+                                        "concurrencyLimit":  50,
+                                        "timeouts":  {
+                                                         "connectSeconds":  5,
+                                                         "overallSeconds":  60
+                                                     }
+                                    },
+                         "prompt":  "Worker consumerlari yaz. Prefetch ve concurrency limitlerini configten oku. Retry ve timeout uygula.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Worker/Consumers",
+                                                                       "src/Worker/Program.cs"
+                                                                   ],
+                                                     "acceptance":  "Yuk artinca worker sayisi artirilabiliyor."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Load testi",
+                                                   "Timeout/retry davranisi"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "Consumers aktif",
+                                      "Prefetch/concurrency configten okunuyor",
+                                      "Retry + timeout + outbox kullanimi"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-011",
+                         "title":  "API Endpoints (Auth + Job Create/Status)",
+                         "dependsOn":  [
+                                           "PKG-004",
+                                           "PKG-009"
+                                       ],
+                         "inputs":  {
+                                        "endpoints":  [
+                                                          "POST /auth/login",
+                                                          "POST /jobs/discovery",
+                                                          "POST /jobs/password-change",
+                                                          "GET /jobs/{id}",
+                                                          "GET /jobs/{id}/targets"
+                                                      ],
+                                        "validationRules":  [
+                                                                "passwords are never logged",
+                                                                "serverGroup required",
+                                                                "role: Operator/Admin can start jobs",
+                                                                "group allowlist enforced"
+                                                            ]
+                                    },
+                         "prompt":  "Job create ve izleme endpointlerini uygula. DB kaydi olustur, MQ komutlarini publish et. RBAC ve validation uygula.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/API/Controllers/JobsController.cs",
+                                                                       "src/Application/UseCases/*"
+                                                                   ],
+                                                     "acceptance":  "Job create ve status calisiyor."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/api-contract.md"
+                                                                   ],
+                                                     "acceptance":  "Request/response ornekleri var."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Operator 200, Viewer 403",
+                                                   "Target count dogru"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "Auth/Jobs API endpointleri",
+                                      "DB kayit + MQ publish",
+                                      "Validation ve role kontrol"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-012",
+                         "title":  "SignalR Live Updates",
+                         "dependsOn":  [
+                                           "PKG-011",
+                                           "PKG-010"
+                                       ],
+                         "inputs":  {
+                                        "hubPath":  "/hubs/jobs",
+                                        "events":  [
+                                                       "jobUpdated",
+                                                       "targetUpdated"
+                                                   ],
+                                        "clientScale":  {
+                                                            "targets":  2000,
+                                                            "recommendations":  [
+                                                                                    "paging",
+                                                                                    "virtualization"
+                                                                                ]
+                                                        }
+                                    },
+                         "prompt":  "SignalR hub ekle. Worker sonucu eventleri API uzerinden SignalR ile publish et.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/API/Hubs/JobsHub.cs",
+                                                                       "src/API/Consumers/ResultEventConsumer.cs"
+                                                                   ],
+                                                     "acceptance":  "UI canli guncelleme goruyor."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/realtime-updates.md"
+                                                                   ],
+                                                     "acceptance":  "Performans notlari var."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "TargetUpdated event akisi"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "JobsHub",
+                                      "Worker result event -\u003e API consumer -\u003e SignalR bridge"
+                                  ],
+                         "open":  [
+                                      "Scale-out backplane karari PKG-022\u0027de"
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-013",
+                         "title":  "Observability + Audit Trail + Security Checklist",
+                         "dependsOn":  [
+                                           "PKG-002",
+                                           "PKG-010",
+                                           "PKG-011"
+                                       ],
+                         "inputs":  {
+                                        "logging":  [
+                                                        "Serilog.AspNetCore",
+                                                        "Serilog.Sinks.File",
+                                                        "Serilog.Sinks.EventLog"
+                                                    ],
+                                        "auditFields":  [
+                                                            "who",
+                                                            "when",
+                                                            "ticketRef",
+                                                            "targetAccount",
+                                                            "serverGroup",
+                                                            "resultSummary"
+                                                        ],
+                                        "redaction":  [
+                                                          "oldPassword",
+                                                          "newPassword",
+                                                          "tokens",
+                                                          "secrets"
+                                                      ]
+                                    },
+                         "prompt":  "Structured logging, correlationId ve audit trail standartlarini kur. Redaction zorunlu. docs/audit-and-logging.md + docs/security-checklist.md ekle.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/API/Logging",
+                                                                       "src/Worker/Logging"
+                                                                   ],
+                                                     "acceptance":  "Sifre loglanmiyor; correlationId ile izlenebilir."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/audit-and-logging.md",
+                                                                       "docs/security-checklist.md"
+                                                                   ],
+                                                     "acceptance":  "Audit alanlari ve checklist net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Loglarda sifre yok",
+                                                   "Audit sorgulari calisiyor"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "Correlation middleware",
+                                      "Structured request logging",
+                                      "Audit read/write",
+                                      "Security headers",
+                                      "Security checklist"
+                                  ],
+                         "open":  [
+                                      "SIEM forwarding (opsiyonel backlog)"
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-014",
+                         "title":  "UI (Phase 2)",
+                         "dependsOn":  [
+                                           "PKG-011",
+                                           "PKG-012",
+                                           "PKG-015",
+                                           "PKG-016",
+                                           "PKG-018"
+                                       ],
+                         "inputs":  {
+                                        "uiStack":  "TBD (React or Blazor)",
+                                        "pages":  [
+                                                      "Dashboard",
+                                                      "Discovery",
+                                                      "Password Change Form",
+                                                      "Job Detail",
+                                                      "Unauthorized"
+                                                  ],
+                                        "splitTabs":  [
+                                                          "Basarili",
+                                                          "Basarisiz"
+                                                      ],
+                                        "columns":  [
+                                                        "Server",
+                                                        "Status",
+                                                        "ResourceType",
+                                                        "ErrorCode",
+                                                        "ErrorMessage",
+                                                        "UpdatedAt"
+                                                    ]
+                                    },
+                         "prompt":  "UI ekranlarini uygula. 2000+ hedef icin paging/virtualization ekle. Role bazli UI guard kur.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/UI"
+                                                                   ],
+                                                     "acceptance":  "Basarili/basarisiz ayrimi ve detay gorunuyor."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/ui-flow.md"
+                                                                   ],
+                                                     "acceptance":  "Kullanici akisi net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Job create -\u003e detail auto open",
+                                                   "Viewer teknik detay gorememeli"
+                                               ],
+                         "state":  "planned",
+                         "done":  [
+
+                                  ],
+                         "open":  [
+                                      "UI stack secimi (React veya Blazor)",
+                                      "2000+ hedefte paging/virtualization",
+                                      "Role bazli UI guard"
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-015",
+                         "title":  "UserRight Discovery Strategy (Real Implementation)",
+                         "dependsOn":  [
+                                           "PKG-007"
+                                       ],
+                         "inputs":  {
+                                        "discoveryTransport":  "WinRM/PowerShell",
+                                        "resourceType":  "UserRight",
+                                        "outputShape":  {
+                                                            "resourceId":  "string (stable key)",
+                                                            "displayName":  "string",
+                                                            "details":  {
+                                                                            "rightName":  "string",
+                                                                            "account":  "string",
+                                                                            "scope":  "string"
+                                                                        }
+                                                        },
+                                        "errorCodes":  [
+                                                           "WINRM_CONNECT_FAILED",
+                                                           "ACCESS_DENIED",
+                                                           "TIMEOUT",
+                                                           "UNKNOWN"
+                                                       ]
+                                    },
+                         "prompt":  "UserRight discovery stratejisini stub\u0027dan cikarip gercek implementasyon yap. WinRM/PowerShell ile user right atamalarini topla, JSON output standardina uydur ve JobResource olarak kaydet. docs/discovery-engine.md altina UserRight notlarini ekle.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Infrastructure/Discovery/Strategies/UserRightDiscoveryStrategy.cs"
+                                                                   ],
+                                                     "acceptance":  "UserRight discovery sonucu uretilir ve hata kodlari standard doner."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/discovery-engine.md"
+                                                                   ],
+                                                     "acceptance":  "UserRight discovery yaklasimi ve limitler dokumante."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "UserRight discovery dry-run",
+                                                   "AccessDenied/timeout senaryolari"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "UserRight discovery stub olmaktan cikarildi",
+                                      "secedit export ile real implementation"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-016",
+                         "title":  "Password-Change Job Orchestration (AD Change + Update + Verify)",
+                         "dependsOn":  [
+                                           "PKG-006",
+                                           "PKG-008",
+                                           "PKG-010",
+                                           "PKG-011"
+                                       ],
+                         "inputs":  {
+                                        "stateMachine":  [
+                                                             "AD_CHANGE",
+                                                             "UPDATE_RESOURCES",
+                                                             "VERIFY"
+                                                         ],
+                                        "constraints":  [
+                                                            "DB/log/MQ plain sifre yok",
+                                                            "Rollback zor; partial failure raporlanmali",
+                                                            "AD replication gecikmesi olabilir (retry window)"
+                                                        ],
+                                        "errorCodes":  [
+                                                           "INVALID_CREDENTIALS",
+                                                           "POLICY_VIOLATION",
+                                                           "ACCESS_DENIED",
+                                                           "USER_NOT_FOUND",
+                                                           "LDAPS_CONNECT_FAILED",
+                                                           "TIMEOUT",
+                                                           "UNKNOWN"
+                                                       ]
+                                    },
+                         "prompt":  "POST /jobs/password-change akisini tek job state machine haline getir: AD (LDAPS) change (old+new) -\u003e update -\u003e verify. Sifreler sadece memoryde kalacak; MQ payload AES-GCM sifreli. Partial failure ve retry davranisini dokumante et.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Application/UseCases/Jobs/CreatePasswordChangeJobUseCase.cs",
+                                                                       "src/Worker/Consumers/UpdateServerResourcesConsumer.cs",
+                                                                       "src/Worker/Consumers/VerifyServerConsumer.cs"
+                                                                   ],
+                                                     "acceptance":  "AD change basarisizsa update/verify tetiklenmez; status/event akisi stabil."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/ad-ldaps-change.md",
+                                                                       "docs/update-engine.md",
+                                                                       "docs/verify-flow.md"
+                                                                   ],
+                                                     "acceptance":  "Orkestrasyon akisi ve riskler (partial failure, replication) net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Success/policy/invalid testleri",
+                                                   "Partial failure senaryosu (1 target fail)",
+                                                   "Verify zinciri"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "StartPasswordChangeJobCommand",
+                                      "Worker orchestrator consumer",
+                                      "AD success olmadan update/verify ilerlememe prensibi"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-017",
+                         "title":  "Resilience Hardening (DLQ + Circuit Breaker/Kill Switch)",
+                         "dependsOn":  [
+                                           "PKG-009",
+                                           "PKG-010",
+                                           "PKG-013"
+                                       ],
+                         "inputs":  {
+                                        "dlq":  true,
+                                        "circuitBreaker":  {
+                                                               "enabled":  true,
+                                                               "windowSeconds":  60,
+                                                               "failureThreshold":  0.5
+                                                           },
+                                        "poisonMessagePolicy":  "retry-limited then DLQ",
+                                        "runbook":  true
+                                    },
+                         "prompt":  "Poison message ve sistematik remote fail durumlari icin hardening ekle: DLQ politikasi, circuit-breaker/kill-switch ve operasyon runbook. docs/reliability-and-error-handling.md guncelle.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Infrastructure/Messaging",
+                                                                       "src/Worker/Consumers"
+                                                                   ],
+                                                     "acceptance":  "Retry limiti asildiginda mesaj DLQ\u0027ya gider; worker sistematik fail\u0027de kendini frenler."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/reliability-and-error-handling.md"
+                                                                   ],
+                                                     "acceptance":  "DLQ/circuit-breaker davranisi ve operasyon adimlari net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Poison message testi",
+                                                   "Kill-switch davranisi",
+                                                   "DLQ consume/runbook kontrolu"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "Consumer retry configurable",
+                                      "Kill-switch configurable",
+                                      "Remote execution circuit breaker",
+                                      "DLQ davranisi dokumante"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-018",
+                         "title":  "Authorization Hardening (DB Allowlist + Job/Hub AuthZ)",
+                         "dependsOn":  [
+                                           "PKG-004",
+                                           "PKG-011",
+                                           "PKG-012"
+                                       ],
+                         "inputs":  {
+                                        "dbAllowlist":  {
+                                                            "mustExist":  true,
+                                                            "requireActive":  true
+                                                        },
+                                        "jobAuthorization":  "jobId bazli erisim (serverGroup/owner)",
+                                        "signalrAuthorization":  "job subscribe authz (opsiyonel)"
+                                    },
+                         "prompt":  "Kurum gereksinimine gore authorization hardening yap: DB\u0027de kayitli ve aktif olmayan kullanici 403 alir. JobId bazli erisim kontrolu ekle. SignalR hub subscribe authz kurallarini tanimla. docs/authz-hardening.md olustur.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/API/Auth",
+                                                                       "src/API/Hubs",
+                                                                       "src/Application/Services/Rbac"
+                                                                   ],
+                                                     "acceptance":  "DB allowlist enforced; jobId bazli 403 senaryolari calisir."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/authz-hardening.md"
+                                                                   ],
+                                                     "acceptance":  "Policy/handler kurallari dokumante."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "DB\u0027de user yok -\u003e 403",
+                                                   "IsActive=false -\u003e 403",
+                                                   "JobId access denied -\u003e 403"
+                                               ],
+                         "state":  "completed_confirmed",
+                         "done":  [
+                                      "DB allowlist (must exist + active)",
+                                      "JobId bazli API authz",
+                                      "SignalR subscribe authz",
+                                      "Default+Fallback fail-closed"
+                                  ],
+                         "open":  [
+
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-019",
+                         "title":  "User \u0026 Role Management API (Soft Delete) + Audit Reporting",
+                         "dependsOn":  [
+                                           "PKG-018",
+                                           "PKG-013"
+                                       ],
+                         "inputs":  {
+                                        "softDelete":  "IsActive=false (physical delete yok)",
+                                        "adminRoles":  [
+                                                           "Admin",
+                                                           "SuperAdmin"
+                                                       ],
+                                        "audit":  {
+                                                      "who":  true,
+                                                      "when":  true,
+                                                      "ticketRef":  true,
+                                                      "changes":  true
+                                                  }
+                                    },
+                         "prompt":  "Admin/SuperAdmin icin user ve rol yonetimi endpointlerini ekle: user ekle, pasife al, rol ata/kaldir. Physical delete yok. Audit loglarda bu islemleri de kaydet. docs/user-management.md + docs/audit-and-logging.md guncelle.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/API/Controllers",
+                                                                       "src/Application/UseCases",
+                                                                       "src/Infrastructure/Persistence"
+                                                                   ],
+                                                     "acceptance":  "User/role yonetimi calisir; audit kaydi olusur; silme yerine pasif edilir."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/user-management.md",
+                                                                       "docs/audit-and-logging.md"
+                                                                   ],
+                                                     "acceptance":  "User lifecycle ve audit alanlari net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "User add/disable",
+                                                   "Role assign/remove",
+                                                   "Audit sorgusu"
+                                               ],
+                         "state":  "in_progress_partial",
+                         "done":  [
+                                      "AdminUsersController + AdminRolesController",
+                                      "List/Upsert/Activate/RoleAssign use-case\u0027leri",
+                                      "IdentityRepository",
+                                      "Lockout onlemi (last admin)",
+                                      "Bootstrap service (opsiyonel ilk SuperAdmin)"
+                                  ],
+                         "open":  [
+                                      "Paket kapanis kriterlerinin test/dokuman/runbook seviyesinde net finalizasyonu"
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-020",
+                         "title":  "Permission Model (Fine-Grained Authorization)",
+                         "dependsOn":  [
+                                           "PKG-019"
+                                       ],
+                         "inputs":  {
+                                        "tables":  [
+                                                       "Permission",
+                                                       "RolePermission"
+                                                   ],
+                                        "policies":  [
+                                                         "policy-based authorization"
+                                                     ],
+                                        "migration":  true
+                                    },
+                         "prompt":  "Role disinda ince yetkiler icin permission modeli ekle (Permission + RolePermission). Policy-based authorization ile endpoint/hub yetkilerini tanimla. docs/permissions-model.md olustur.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Domain/Entities",
+                                                                       "src/Infrastructure/Persistence",
+                                                                       "src/API/Auth"
+                                                                   ],
+                                                     "acceptance":  "Permission tabanli yetkilendirme calisir ve migration ile DB kurulabilir."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/permissions-model.md"
+                                                                   ],
+                                                     "acceptance":  "Permission modeli ve policy haritasi dokumante."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Policy senaryolari",
+                                                   "Migration apply"
+                                               ],
+                         "state":  "planned",
+                         "done":  [
+
+                                  ],
+                         "open":  [
+                                      "Permission + RolePermission modeli",
+                                      "Policy-based authz genisletmesi"
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-021",
+                         "title":  "Observability v2 (OpenTelemetry + HealthChecks + Rate Limiting)",
+                         "dependsOn":  [
+                                           "PKG-013"
+                                       ],
+                         "inputs":  {
+                                        "otel":  {
+                                                     "traces":  true,
+                                                     "metrics":  true
+                                                 },
+                                        "healthChecks":  [
+                                                             "db",
+                                                             "rabbitmq",
+                                                             "ldap"
+                                                         ],
+                                        "rateLimiting":  true
+                                    },
+                         "prompt":  "Kurumsal operasyon icin observability genislet: OpenTelemetry trace/metric, healthcheck endpointleri, API rate limiting ve daha guclu security headers. docs/observability.md olustur.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/API/Program.cs",
+                                                                       "src/Worker/Program.cs",
+                                                                       "src/API/Observability"
+                                                                   ],
+                                                     "acceptance":  "Healthcheck + OTel export + rate limiting calisir."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/observability.md"
+                                                                   ],
+                                                     "acceptance":  "Trace/metric/healthcheck kapsam ve konfigurasyon net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Health endpoint",
+                                                   "OTel export smoke test",
+                                                   "Rate limit testi"
+                                               ],
+                         "state":  "planned",
+                         "done":  [
+
+                                  ],
+                         "open":  [
+                                      "OpenTelemetry traces/metrics",
+                                      "HealthChecks",
+                                      "Rate limiting"
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-022",
+                         "title":  "SignalR Scale-Out (Backplane) + Deployment Guide",
+                         "dependsOn":  [
+                                           "PKG-012",
+                                           "PKG-014"
+                                       ],
+                         "inputs":  {
+                                        "scaleOut":  "Redis backplane (opsiyonel)",
+                                        "lb":  "sticky-session or backplane",
+                                        "timeouts":  [
+                                                         "websocket idle timeout",
+                                                         "proxy limits"
+                                                     ]
+                                    },
+                         "prompt":  "API scale-out senaryosu icin SignalR backplane (Redis) opsiyonunu ekle ve deploy guide yaz. Sticky session vs backplane kararlarini dokumante et.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/API/Program.cs"
+                                                                   ],
+                                                     "acceptance":  "Backplane aktiflestirilebiliyor (config ile)."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/signalr-scaleout.md"
+                                                                   ],
+                                                     "acceptance":  "LB/backplane/timeouts notlari net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "Multi-instance smoke test (opsiyonel)",
+                                                   "Reconnect/resync senaryosu"
+                                               ],
+                         "state":  "planned",
+                         "done":  [
+
+                                  ],
+                         "open":  [
+                                      "Backplane/sticky-session karari",
+                                      "Multi-instance realtime deployment notlari"
+                                  ]
+                     },
+                     {
+                         "id":  "PKG-023",
+                         "title":  "Key Rotation + Secret Management Runbooks",
+                         "dependsOn":  [
+                                           "PKG-002",
+                                           "PKG-009"
+                                       ],
+                         "inputs":  {
+                                        "payloadKeys":  [
+                                                            "KeyId rotation",
+                                                            "multi-key decrypt"
+                                                        ],
+                                        "tls":  [
+                                                    "cert rotation runbook"
+                                                ],
+                                        "secretsStore":  [
+                                                             "Windows Credential Manager",
+                                                             "Vault"
+                                                         ]
+                                    },
+                         "prompt":  "AES-GCM key rotation (KeyId) ve secret/certificate rotation icin runbook ve (gerekirse) multi-key decrypt destegi ekle. docs/ops-runbooks.md olustur.",
+                         "expectedOutputs":  [
+                                                 {
+                                                     "type":  "code",
+                                                     "pathHints":  [
+                                                                       "src/Infrastructure/Security/AesGcmPayloadProtector.cs"
+                                                                   ],
+                                                     "acceptance":  "KeyId ile decrypt edilebilir; rotation senaryosu desteklenir veya dokumante edilir."
+                                                 },
+                                                 {
+                                                     "type":  "markdown",
+                                                     "pathHints":  [
+                                                                       "docs/ops-runbooks.md"
+                                                                   ],
+                                                     "acceptance":  "Key/cert/secret rotation adimlari ve guvenlik notlari net."
+                                                 }
+                                             ],
+                         "verificationSteps":  [
+                                                   "KeyId rotation smoke test (2 key)",
+                                                   "Docs review"
+                                               ],
+                         "state":  "planned",
+                         "done":  [
+
+                                  ],
+                         "open":  [
+                                      "KeyId rotation stratejisi",
+                                      "Secret/cert rotation runbook",
+                                      "Gerekirse multi-key decrypt destegi"
+                                  ]
+                     }
+                 ],
+    "executionOrder":  [
+                           "PKG-000",
+                           "PKG-001",
+                           "PKG-002",
+                           "PKG-003",
+                           "PKG-004",
+                           "PKG-005",
+                           "PKG-006",
+                           "PKG-007",
+                           "PKG-008",
+                           "PKG-009",
+                           "PKG-010",
+                           "PKG-011",
+                           "PKG-012",
+                           "PKG-013",
+                           "PKG-015",
+                           "PKG-016",
+                           "PKG-017",
+                           "PKG-018",
+                           "PKG-019",
+                           "PKG-014",
+                           "PKG-020",
+                           "PKG-021",
+                           "PKG-022",
+                           "PKG-023"
+                       ],
+    "statusSnapshot":  {
+                           "generatedAtLocal":  "2026-02-23T20:26:19+03:00",
+                           "sourceReport":  "Document/project_state_note_2026-02-23.json",
+                           "currentPrimaryPhase":  {
+                                                       "id":  "PKG-019",
+                                                       "name":  "User \u0026 Role Management API + Soft Delete + Audit",
+                                                       "status":  "in_progress_partial",
+                                                       "reason":  "Admin user/role API ve bootstrap mevcut, fakat paket kapanis kriterleri dokumantasyonda halen \u0027tamamlama\u0027 asamasinda takip ediliyor."
+                                                   },
+                           "lastStableCompletedPhase":  "PKG-018",
+                           "packageStateCounts":  {
+                                                      "completed_confirmed":  16,
+                                                      "completed_inferred":  1,
+                                                      "external_or_repo_disi_prereq":  1,
+                                                      "in_progress_partial":  1,
+                                                      "planned":  5
+                                                  },
+                           "completionRatios":  {
+                                                    "confirmed_completion_ratio_percent":  66.7,
+                                                    "effective_progress_ratio_percent_including_inferred_and_external":  75.0
+                                                },
+                           "notes":  [
+                                         "PKG-000 altyapi onkosulu oldugu icin repo disi/isletimsel kabul edilmis durumda.",
+                                         "PKG-001 solution bootstrap repo yapisindan tamamlanmis olarak gorunuyor."
+                                     ]
+                       }
 }

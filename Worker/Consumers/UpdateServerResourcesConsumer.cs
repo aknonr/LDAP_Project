@@ -6,8 +6,10 @@ using Application.Messaging;
 using Application.Messaging.Commands;
 using Application.Messaging.Events;
 using Domain.Enums;
+using Infrastructure.Messaging;
 using Infrastructure.Persistence;
 using MassTransit;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -182,16 +184,25 @@ public sealed class UpdateServerResourcesConsumer : IConsumer<UpdateServerResour
         if (result.Status == TargetStatus.Success && _verificationOptions.Value.EnablePostUpdateVerification)
         {
             var endpoint = await context.GetSendEndpoint(new Uri($"queue:{QueueNames.ServerVerifyCommands}"));
-            await endpoint.Send(new VerifyServerCommand
-            {
-                JobId = context.Message.JobId,
-                TargetId = context.Message.TargetId,
-                ServerName = context.Message.ServerName,
-                IpAddress = context.Message.IpAddress,
-                TargetAccount = context.Message.TargetAccount,
-                EncryptedPassword = context.Message.EncryptedPassword,
-                CorrelationId = context.Message.CorrelationId
-            }, context.CancellationToken);
+            await endpoint.Send(
+                new VerifyServerCommand
+                {
+                    JobId = context.Message.JobId,
+                    TargetId = context.Message.TargetId,
+                    ServerName = context.Message.ServerName,
+                    IpAddress = context.Message.IpAddress,
+                    TargetAccount = context.Message.TargetAccount,
+                    EncryptedPassword = context.Message.EncryptedPassword,
+                    CorrelationId = context.Message.CorrelationId
+                },
+                sendContext =>
+                {
+                    // Ayni target verify komutu tekrar dispatch edilirse stabil MessageId kullan.
+                    sendContext.MessageId = DeterministicMessageIdFactory.ForVerify(
+                        context.Message.JobId,
+                        context.Message.TargetId);
+                },
+                context.CancellationToken);
 
             // Verify sonuclanana kadar hedefi InProgress tutariz (final Success/Failed verify ile gelir).
             await context.Publish(new ServerUpdateResultEvent
@@ -275,22 +286,84 @@ public sealed class UpdateServerResourcesConsumer : IConsumer<UpdateServerResour
             .Select(group => group.First())
             .ToList();
 
+        if (relevant.Count == 0)
+        {
+            return 0;
+        }
+
+        var existingKeys = target.Resources
+            .Select(item => ResourceIdentityKey.From(item.ResourceType, item.ResourceName, item.ResourcePath))
+            .ToHashSet();
+
+        var addedCount = 0;
         foreach (var resource in relevant)
         {
+            var key = ResourceIdentityKey.From(resource.ResourceType, resource.ResourceName, resource.ResourcePath);
+            if (!existingKeys.Add(key))
+            {
+                continue;
+            }
+
             target.Resources.Add(new Domain.Entities.JobResource
             {
                 Id = Guid.NewGuid(),
                 JobTargetId = target.Id,
                 ResourceType = resource.ResourceType,
-                ResourceName = resource.ResourceName,
-                ResourcePath = resource.ResourcePath,
+                ResourceName = resource.ResourceName.Trim(),
+                ResourcePath = string.IsNullOrWhiteSpace(resource.ResourcePath)
+                    ? string.Empty
+                    : resource.ResourcePath.Trim(),
                 Status = TargetStatus.Pending,
                 UpdatedAt = now
             });
+            addedCount++;
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        return relevant.Count;
+        if (addedCount == 0)
+        {
+            return target.Resources.Count;
+        }
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return target.Resources.Count;
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            _logger.LogWarning(
+                ex,
+                "Resource hazirligi yarista tekrarlandi; mevcut kayitlar kullanilacak. JobId={JobId}, TargetId={TargetId}, Server={Server}",
+                message.JobId,
+                message.TargetId,
+                message.ServerName);
+
+            // Hata alan izde kalan Added entity'leri sonraki akislari etkilemesin.
+            _dbContext.ChangeTracker.Clear();
+
+            return await _dbContext.JobResources
+                .AsNoTracking()
+                .CountAsync(item => item.JobTargetId == message.TargetId, cancellationToken);
+        }
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException exception)
+    {
+        if (exception.InnerException is not SqlException sqlException)
+        {
+            return false;
+        }
+
+        return sqlException.Number is 2601 or 2627;
+    }
+
+    private readonly record struct ResourceIdentityKey(ResourceType ResourceType, string ResourceName, string ResourcePath)
+    {
+        public static ResourceIdentityKey From(ResourceType resourceType, string resourceName, string? resourcePath)
+            => new(
+                resourceType,
+                resourceName.Trim(),
+                (resourcePath ?? string.Empty).Trim());
     }
 
     private async Task MarkTargetNoOpSuccessAsync(Guid jobId, Guid targetId, CancellationToken cancellationToken)
@@ -335,4 +408,3 @@ public sealed class UpdateServerResourcesConsumer : IConsumer<UpdateServerResour
             : resourcePath;
     }
 }
-
