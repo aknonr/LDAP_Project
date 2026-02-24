@@ -85,8 +85,10 @@ public sealed class DiscoveryEngine : IDiscoveryEngine
                     Id = Guid.NewGuid(),
                     JobTargetId = target.Id,
                     ResourceType = resource.ResourceType,
-                    ResourceName = resource.ResourceName,
-                    ResourcePath = resource.ResourcePath,
+                    ResourceName = resource.ResourceName.Trim(),
+                    ResourcePath = string.IsNullOrWhiteSpace(resource.ResourcePath)
+                        ? string.Empty
+                        : resource.ResourcePath.Trim(),
                     Status = TargetStatus.Success,
                     UpdatedAt = now
                 });

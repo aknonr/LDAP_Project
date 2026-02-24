@@ -92,12 +92,19 @@ public sealed partial class PowerShellWinRmCommandExecutor : IRemoteCommandExecu
             }
 
             var mappedErrorCode = MapErrorCode(standardError);
+            var summarizedError = SummarizeStandardError(standardError);
+            var connectivityHint = BuildConnectivityHint(mappedErrorCode, standardError);
             TrackCircuitOutcome(options.CircuitBreaker, isFailure: IsSystemicFailure(mappedErrorCode));
             _logger.LogWarning(
-                "Remote command basarisiz. Server={Server}, ExitCode={ExitCode}, ErrorCode={ErrorCode}",
+                "Remote command basarisiz. Server={Server}, ExitCode={ExitCode}, ErrorCode={ErrorCode}, Transport={Transport}, ConnectTimeoutSeconds={ConnectTimeoutSeconds}, OverallTimeoutSeconds={OverallTimeoutSeconds}, Hint={Hint}, ErrorSummary={ErrorSummary}",
                 serverName,
                 process.ExitCode,
-                mappedErrorCode);
+                mappedErrorCode,
+                options.Transport,
+                options.ConnectTimeoutSeconds,
+                options.OverallTimeoutSeconds,
+                connectivityHint,
+                summarizedError);
 
             return RemoteCommandExecutionResult.Failure(
                 mappedErrorCode,
@@ -107,11 +114,24 @@ public sealed partial class PowerShellWinRmCommandExecutor : IRemoteCommandExecu
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             TrackCircuitOutcome(options.CircuitBreaker, isFailure: true);
+            _logger.LogWarning(
+                "Remote command timeout. Server={Server}, Transport={Transport}, ConnectTimeoutSeconds={ConnectTimeoutSeconds}, OverallTimeoutSeconds={OverallTimeoutSeconds}, Hint={Hint}",
+                serverName,
+                options.Transport,
+                options.ConnectTimeoutSeconds,
+                options.OverallTimeoutSeconds,
+                "WINRM timeout/firewall/network kaynakli olabilir.");
             return RemoteCommandExecutionResult.Failure("TIMEOUT", "Remote command timeout.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Remote command exception. Server={Server}", serverName);
+            _logger.LogError(
+                ex,
+                "Remote command exception. Server={Server}, Transport={Transport}, ConnectTimeoutSeconds={ConnectTimeoutSeconds}, OverallTimeoutSeconds={OverallTimeoutSeconds}",
+                serverName,
+                options.Transport,
+                options.ConnectTimeoutSeconds,
+                options.OverallTimeoutSeconds);
             TrackCircuitOutcome(options.CircuitBreaker, isFailure: true);
             return RemoteCommandExecutionResult.Failure("WINRM_CONNECT_FAILED", "Remote command calistirilamadi.");
         }
@@ -228,6 +248,64 @@ Invoke-Command -ComputerName '{safeServerName}' -ScriptBlock {{
         }
 
         return "UNKNOWN";
+    }
+
+    private static string SummarizeStandardError(string? standardError)
+    {
+        if (string.IsNullOrWhiteSpace(standardError))
+        {
+            return "n/a";
+        }
+
+        var normalized = standardError
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+
+        const int maxLength = 280;
+        return normalized.Length <= maxLength
+            ? normalized
+            : normalized[..maxLength];
+    }
+
+    private static string BuildConnectivityHint(string mappedErrorCode, string? standardError)
+    {
+        if (string.Equals(mappedErrorCode, "ACCESS_DENIED", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Kimlik/yetkiyi kontrol et (service account, local admin, WinRM auth).";
+        }
+
+        if (string.Equals(mappedErrorCode, "TIMEOUT", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Timeout/Firewall/Route kaynakli olabilir (5985/5986, DNS, proxy, ACL).";
+        }
+
+        if (string.Equals(mappedErrorCode, "WINRM_CONNECT_FAILED", StringComparison.OrdinalIgnoreCase))
+        {
+            if (IsPossibleFirewallOrNetworkBlock(standardError))
+            {
+                return "Olasi firewall/network blokaji (5985/5986, host ACL, route).";
+            }
+
+            return "WinRM endpoint/service, DNS ve sertifika ayarlarini kontrol et.";
+        }
+
+        return "Standart hata ciktisini incele.";
+    }
+
+    private static bool IsPossibleFirewallOrNetworkBlock(string? standardError)
+    {
+        if (string.IsNullOrWhiteSpace(standardError))
+        {
+            return false;
+        }
+
+        return standardError.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+               || standardError.Contains("actively refused", StringComparison.OrdinalIgnoreCase)
+               || standardError.Contains("forcibly closed", StringComparison.OrdinalIgnoreCase)
+               || standardError.Contains("No such host is known", StringComparison.OrdinalIgnoreCase)
+               || standardError.Contains("The client cannot connect", StringComparison.OrdinalIgnoreCase)
+               || standardError.Contains("destination specified", StringComparison.OrdinalIgnoreCase);
     }
 
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.-]{0,253}$")]

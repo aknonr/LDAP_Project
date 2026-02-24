@@ -217,7 +217,9 @@ namespace Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("JobTargetId");
+                    b.HasIndex("JobTargetId", "ResourceType", "ResourceName", "ResourcePath")
+                        .IsUnique()
+                        .HasFilter("[ResourcePath] IS NOT NULL");
 
                     b.ToTable("JobResources", (string)null);
                 });
@@ -260,7 +262,8 @@ namespace Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("JobId");
+                    b.HasIndex("JobId", "ServerName")
+                        .IsUnique();
 
                     b.ToTable("JobTargets", (string)null);
                 });

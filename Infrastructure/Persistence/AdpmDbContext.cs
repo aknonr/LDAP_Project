@@ -96,6 +96,8 @@ public sealed class AdpmDbContext : DbContext
                 .WithMany(x => x.Targets)
                 .HasForeignKey(x => x.JobId)
                 .OnDelete(DeleteBehavior.Cascade);
+            // Ayni job icinde ayni server hedefinin cift kayit olusmasini engeller.
+            entity.HasIndex(x => new { x.JobId, x.ServerName }).IsUnique();
         });
 
         modelBuilder.Entity<JobResource>(entity =>
@@ -119,6 +121,8 @@ public sealed class AdpmDbContext : DbContext
                 .WithMany(x => x.Resources)
                 .HasForeignKey(x => x.JobTargetId)
                 .OnDelete(DeleteBehavior.Cascade);
+            // Multi-instance ve tekrar dispatch durumlarinda kaynak cift kaydini DB seviyesinde engeller.
+            entity.HasIndex(x => new { x.JobTargetId, x.ResourceType, x.ResourceName, x.ResourcePath }).IsUnique();
         });
 
         modelBuilder.Entity<ServerGroup>(entity =>

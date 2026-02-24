@@ -1,5 +1,11 @@
 # Messaging Topology (RabbitMQ + MassTransit)
 
+## State Snapshot (2026-02-23)
+- Snapshot date: `2026-02-23`
+- Current phase: `PKG-019 (in_progress_partial)`
+- Last stable completion: `PKG-018`
+- Next targets: `PKG-019 close -> PKG-014 -> PKG-020 -> PKG-021 -> PKG-022 -> PKG-023`
+
 Bu dokuman PKG-009/010 ve PKG-012 kapsaminda gunceldir.
 
 ## Queue ve Exchange
@@ -73,3 +79,4 @@ Bu dokuman PKG-009/010 ve PKG-012 kapsaminda gunceldir.
 - `VerifyServerCommand` artik `TargetAccount` alanini tasir.
 - Quorum queue aciksa command queue'lar durable ve HA davranir.
 - Outbox aktifse DB'de `InboxState/OutboxMessage/OutboxState` tablolari migration ile olusur ve publish/consume dayanikliligi artar.
+- Multi-instance duplicate koruma icin command publish/dipatch adimlarinda deterministic `MessageId` kullanilir (job veya job+target bazli).
