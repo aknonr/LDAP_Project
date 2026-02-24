@@ -80,3 +80,46 @@ Bu dokuman PKG-009/010 ve PKG-012 kapsaminda gunceldir.
 - Quorum queue aciksa command queue'lar durable ve HA davranir.
 - Outbox aktifse DB'de `InboxState/OutboxMessage/OutboxState` tablolari migration ile olusur ve publish/consume dayanikliligi artar.
 - Multi-instance duplicate koruma icin command publish/dipatch adimlarinda deterministic `MessageId` kullanilir (job veya job+target bazli).
+
+## Hardening Update (2026-02-24)
+
+### Neden Yapildi
+- Endpoint tipleri farkli workload'a sahip oldugu icin tek `Prefetch/Concurrency` ayari operasyonel olarak yetersiz kalabiliyordu.
+- `InProgress` gorunurlugu yalnizca zincirin belirli adimlarinda olustugu icin stuck tespiti zorlasiyordu.
+
+### Nasil Calisiyor
+- Endpoint bazli ayar:
+  - `Messaging:Consumer:EndpointOverrides:Discovery`
+  - `Messaging:Consumer:EndpointOverrides:PasswordChange`
+  - `Messaging:Consumer:EndpointOverrides:Update`
+  - `Messaging:Consumer:EndpointOverrides:Verify`
+  - API tarafinda `Messaging:Consumer:EndpointOverrides:ResultEvents`
+- `UpdateServerResourcesConsumer` ve `VerifyServerConsumer` is basinda `ServerUpdateResultEvent(Status=InProgress)` publish eder.
+
+### Ornek Config
+```json
+"Messaging": {
+  "Consumer": {
+    "PrefetchCount": 50,
+    "ConcurrencyLimit": 50,
+    "EndpointOverrides": {
+      "Discovery": { "PrefetchCount": 12, "ConcurrencyLimit": 6 },
+      "PasswordChange": { "PrefetchCount": 8, "ConcurrencyLimit": 4 },
+      "Update": { "PrefetchCount": 60, "ConcurrencyLimit": 30 },
+      "Verify": { "PrefetchCount": 30, "ConcurrencyLimit": 15 },
+      "ResultEvents": { "PrefetchCount": 100, "ConcurrencyLimit": 50 }
+    }
+  }
+}
+```
+
+### Operasyon / Runbook Notlari
+- Tuning degisiklikleri queue bazli backlog metric ile birlikte uygulanmalidir.
+- `Update` concurrency yukseltilirken remote endpoint (WinRM) saturation etkisi mutlaka izlenmelidir.
+
+### Risk / Trade-off
+- Agresif prefetch/concurrency DB ve remote endpoint'i bogabilir.
+- Dusuk ayarlar backlog'un buyumesine neden olabilir.
+
+### Rollback Etkisi
+- `EndpointOverrides` silinirse tum endpointler global `Messaging:Consumer` degerlerine geri doner.

@@ -46,6 +46,16 @@ public sealed class VerifyServerConsumer : IConsumer<VerifyServerCommand>
             return;
         }
 
+        await context.Publish(new ServerUpdateResultEvent
+        {
+            JobId = context.Message.JobId,
+            TargetId = context.Message.TargetId,
+            Status = TargetStatus.InProgress,
+            ErrorCode = null,
+            ErrorMessage = null,
+            CorrelationId = context.Message.CorrelationId
+        }, context.CancellationToken);
+
         string newPassword;
         try
         {

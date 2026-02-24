@@ -60,3 +60,20 @@
 ## Sonraki Plan
 - PKG-019: User/Role yonetimi: soft delete + audit raporlama (tamamlama)
 - PKG-020: Permission modeli (fine-grained authorization)
+
+## Hardening Update (2026-02-24)
+
+### Neden Bu Katmanda Degisiklik Yok
+- Bu iterasyonda hedef resilience/operasyon hardening oldugu icin Domain/Application sozlesmeleri korunmustur.
+- Onion sinirlari geregi RabbitMQ/MassTransit/lease detaylari Infrastructure/Host katmaninda tutulmustur.
+
+### Korunan Contract'lar
+- Command/Event tiplerinde breaking degisiklik yok.
+- Use-case giris/cikis modellerinde degisiklik yok.
+- `IJobTrackingService` imzasi degismeden implementasyon guclendirilmistir.
+
+### Risk / Trade-off
+- Contract degistirmeme karari rollout riskini azaltir, fakat observability kontrollleri host katmaninda yogunlasir.
+
+### Rollback Etkisi
+- Application katmaninda rollback gerektiren bir degisiklik yoktur.

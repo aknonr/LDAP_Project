@@ -68,3 +68,32 @@
 ## Sonraki Plan
 - DTO ayirma katmani kullanici istegine gore en sona birakildi.
 - PKG-014 UI asamasinda SignalR client abonelikleri ve paging/virtualization baglanacak.
+
+## Hardening Update (2026-02-24)
+
+### Neden Yapildi
+- Uzun sure `InProgress` kalan hedefleri otomatik olarak tespit etmek ve operasyon ekibine erken sinyal vermek.
+- Result event consumer tarafinda stale/out-of-order kaynakli overwrite etkisini azaltmak.
+
+### Nasil Calisiyor
+- `Startup/StuckTargetWatchdogHostedService.cs` eklendi.
+- Watchdog varsayilan olarak sadece warning log yazar.
+- `AutoFailTimedOutTargets=true` olursa timeout hedefleri `TARGET_STUCK_TIMEOUT` ile fail'e ceker.
+- Multi-instance API icin distributed lease opsiyonu vardir.
+
+### Config Anahtarlari
+- `Reliability:StuckWatchdog:Enabled`
+- `Reliability:StuckWatchdog:ScanIntervalSeconds`
+- `Reliability:StuckWatchdog:TargetInProgressTimeoutSeconds`
+- `Reliability:StuckWatchdog:BatchSize`
+- `Reliability:StuckWatchdog:AutoFailTimedOutTargets`
+- `Reliability:StuckWatchdog:UseDistributedLease`
+- `Reliability:StuckWatchdog:LeaseName`
+- `Reliability:StuckWatchdog:LeaseDurationSeconds`
+
+### Risk / Trade-off
+- `AutoFailTimedOutTargets=true` dikkatli acilmalidir; timeout eger agresif secilirse false-fail yaratabilir.
+- Watchdog taramasi DB'de periyodik okuma yukunu arttirir.
+
+### Rollback
+- `Reliability:StuckWatchdog:Enabled=false` ile watchdog devre disi birakilir.

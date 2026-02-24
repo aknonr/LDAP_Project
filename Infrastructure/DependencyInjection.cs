@@ -28,6 +28,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Infrastructure.Concurrency;
 
 namespace Infrastructure;
 
@@ -73,6 +74,7 @@ public static class DependencyInjection
         services.AddScoped<IAuditTrailWriter, AuditTrailStore>();
         services.AddScoped<IAuditTrailReader, AuditTrailStore>();
         services.AddScoped<IInventorySyncService, InventorySyncService>();
+        services.AddScoped<IDistributedLeaseManager, SqlDistributedLeaseManager>();
         services.AddScoped<IRemoteCommandExecutor, PowerShellWinRmCommandExecutor>();
         services.AddScoped<IDiscoveryEngine, DiscoveryEngine>();
         services.AddScoped<IUpdateEngine, UpdateEngine>();

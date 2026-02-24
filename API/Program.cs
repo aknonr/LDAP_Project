@@ -91,6 +91,7 @@ builder.Services.Configure<ConsumerOptions>(builder.Configuration.GetSection("Me
 builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Messaging:Outbox"));
 builder.Services.Configure<OidcOptions>(builder.Configuration.GetSection("Auth:Oidc"));
 builder.Services.Configure<BootstrapOptions>(builder.Configuration.GetSection("Auth:Bootstrap"));
+builder.Services.Configure<StuckTargetWatchdogOptions>(builder.Configuration.GetSection("Reliability:StuckWatchdog"));
 
 builder.Services.AddSignalR(options =>
 {
@@ -190,6 +191,7 @@ builder.Services.AddScoped<ListRolesUseCase>();
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<RbacBootstrapHostedService>();
+builder.Services.AddHostedService<StuckTargetWatchdogHostedService>();
 
 builder.Services.AddMassTransit(configurator =>
 {
@@ -228,7 +230,9 @@ builder.Services.AddMassTransit(configurator =>
         // API tarafi result event queue'sunu tuketir ve SignalR'a aktarir.
         cfg.ReceiveEndpoint(QueueNames.ServerResultEvents, endpoint =>
         {
-            endpoint.ConfigureEndpointDefaults(consumerOptions, options);
+            endpoint.ConfigureEndpointDefaults(
+                consumerOptions.ResolveForEndpoint("ResultEvents"),
+                options);
             endpoint.UseEntityFrameworkOutbox<Infrastructure.Persistence.AdpmDbContext>(context);
             endpoint.ConfigureConsumer<ServerUsageResultEventConsumer>(context);
             endpoint.ConfigureConsumer<ServerUpdateResultEventConsumer>(context);

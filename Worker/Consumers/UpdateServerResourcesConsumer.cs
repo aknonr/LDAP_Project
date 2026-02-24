@@ -79,6 +79,16 @@ public sealed class UpdateServerResourcesConsumer : IConsumer<UpdateServerResour
             return;
         }
 
+        await context.Publish(new ServerUpdateResultEvent
+        {
+            JobId = context.Message.JobId,
+            TargetId = context.Message.TargetId,
+            Status = TargetStatus.InProgress,
+            ErrorCode = null,
+            ErrorMessage = null,
+            CorrelationId = context.Message.CorrelationId
+        }, context.CancellationToken);
+
         int preparedCount;
         try
         {

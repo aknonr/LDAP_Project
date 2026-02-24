@@ -18,6 +18,7 @@ public sealed class AdpmDbContext : DbContext
     public DbSet<JobResource> JobResources => Set<JobResource>();
     public DbSet<ServerInventory> ServerInventories => Set<ServerInventory>();
     public DbSet<ServerGroup> ServerGroups => Set<ServerGroup>();
+    public DbSet<DistributedLease> DistributedLeases => Set<DistributedLease>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
@@ -165,6 +166,19 @@ public sealed class AdpmDbContext : DbContext
             entity.Property(x => x.CorrelationId).HasMaxLength(100);
             entity.HasIndex(x => x.When);
             entity.HasIndex(x => x.CorrelationId);
+        });
+
+        modelBuilder.Entity<DistributedLease>(entity =>
+        {
+            entity.ToTable("DistributedLeases");
+            entity.HasKey(x => x.Name);
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.OwnerId).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.LeaseUntilUtc).IsRequired();
+            entity.Property(x => x.AcquiredAtUtc).IsRequired();
+            entity.Property(x => x.RenewedAtUtc).IsRequired();
+            entity.Property(x => x.RowVersion).IsRowVersion();
+            entity.HasIndex(x => x.LeaseUntilUtc);
         });
 
         modelBuilder.Entity<OutboxMessage>(entity =>

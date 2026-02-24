@@ -115,6 +115,50 @@ Bu repo, kurumsal AD sifre degistirme ve servis hesabi kullanimini yonetmek icin
 - Multi-instance duplicate koruma: deterministic `MessageId` + `JobTargets/JobResources` unique index + update hazirlik adiminda unique-conflict fallback.
 - WinRM hata loglari firewall/network teshisi icin detaylandirildi (`ErrorSummary` + `Hint` + timeout/transport alanlari).
 
+## 2026-02-24 Hardening Guncellemesi
+
+### Neden Yapildi
+- Production'da tek worker riski nedeniyle multi-instance guvenligi ve operasyon gorunurlugu guclendirildi.
+
+### Neler Eklendi
+- Inventory singleton lease:
+  - `DistributedLeases` tablosu + `SqlDistributedLeaseManager`
+  - `InventorySyncJob` acquire/renew/release
+- Consumer endpoint bazli tuning:
+  - `Messaging:Consumer:EndpointOverrides`
+- State overwrite korumasi:
+  - `JobTrackingService` stale/out-of-order guard
+- Stuck watchdog:
+  - `StuckTargetWatchdogHostedService` (API)
+- Operasyonel telemetry:
+  - worker health reporter
+  - queue lag reporter
+  - explicit Windows Service host ayari
+
+### Mimari Etki
+- Onion sinirlari korunmustur:
+  - Domain/Application katmani MassTransit/RabbitMQ tiplerine dogrudan baglanmamistir.
+  - Cross-cutting concern'ler ayrik servislerle cozumlendi (`IDistributedLeaseManager`, watchdog hosted service, queue lag probe).
+
+### Operasyon / Runbook
+- Minimum HA:
+  - En az 2 worker instance (Update+Verify rollerinde)
+- Inventory sync:
+  - Lease bazli singleton, birden cok instance'ta duplicate sync engeli
+- Windows recovery:
+  - `sc.exe failure ...` politikasi ile otomatik restart
+
+### Risk / Trade-off
+- Lease ve watchdog mekanizmalari DB is yukunu artisli hale getirir.
+- Queue lag metric icin RabbitMQ management API guvenli erisim gerekir.
+
+### Rollback Etkisi
+- Config bazli rollback:
+  - `InventorySyncLease:Enabled=false`
+  - `Reliability:StuckWatchdog:Enabled=false`
+  - `Observability:QueueLag:Enabled=false`
+- Kod rollback durumunda `AddDistributedLease` migration geri alinmalidir.
+
 ## Troubleshooting Notu
 - `dotnet list ... --vulnerable` komutu bu ortamda tekrar calistirildi ve basarili.
 - `hostpolicy.dll/SDK` problemi su an yeniden uretilemiyor.
